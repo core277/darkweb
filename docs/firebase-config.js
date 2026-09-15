@@ -17,4 +17,4 @@ export const tenorApiKey = "";
 
 // Alternative GIF provider (used if tenorApiKey is empty). Free key from developers.giphy.com
 // (Create an App -> API). Leave empty to disable.
-export const giphyApiKey = "";
+export const giphyApiKey = "jm71OinID4uESDwLBG5YBsRtl4lEELwn";
