@@ -139,6 +139,10 @@ const TEMPLATE = `
       </header>
       <div id="message-list"></div>
       <div id="composer" hidden>
+        <div id="mention-popup" hidden>
+          <div class="mention-title">Members</div>
+          <div id="mention-list"></div>
+        </div>
         <div id="image-preview" hidden>
           <img id="image-preview-img" alt="" />
           <button id="image-preview-remove" class="icon-btn" title="Remove">${ICONS.close}</button>
@@ -1410,7 +1414,10 @@ const TEMPLATE = `
       if (m.text) {
         const text = document.createElement("div");
         text.className = "msg-text";
-        text.textContent = m.text;
+        const { mentionsMe } = renderRichText(text, m.text);
+        if (mentionsMe || (Array.isArray(m.mentions) && me && (m.mentions.includes(me.uid) || m.mentions.includes("everyone")))) {
+          row.classList.add("mentioned");
+        }
         body.appendChild(text);
       }
       if (m.imageData) {
@@ -1445,8 +1452,178 @@ const TEMPLATE = `
     messagesFirstRender = false;
   }
 
+  // ---------- @mentions ----------
+  const isWordChar = (c) => !!c && /[A-Za-z0-9_]/.test(c);
+
+  function mentionNames() {
+    return allUsers()
+      .filter((u) => u.displayName)
+      .map((u) => ({ uid: u.uid, name: u.displayName }))
+      .sort((a, b) => b.name.length - a.name.length);
+  }
+
+  // Turns "@Name" runs in plain text into mention pills. Returns who was mentioned.
+  function renderRichText(el, text) {
+    const names = mentionNames();
+    const uids = new Set();
+    let mentionsMe = false;
+    let i = 0;
+    while (i < text.length) {
+      const at = text.indexOf("@", i);
+      if (at === -1) {
+        el.appendChild(document.createTextNode(text.slice(i)));
+        break;
+      }
+      el.appendChild(document.createTextNode(text.slice(i, at)));
+      const rest = text.slice(at + 1);
+      const lower = rest.toLowerCase();
+      let match = null;
+      if (lower.startsWith("everyone") && !isWordChar(rest[8])) match = { uid: "everyone", name: "everyone" };
+      else {
+        for (const n of names) {
+          if (lower.startsWith(n.name.toLowerCase()) && !isWordChar(rest[n.name.length])) {
+            match = n;
+            break;
+          }
+        }
+      }
+      if (match) {
+        const forMe = me && (match.uid === me.uid || match.uid === "everyone");
+        const pill = document.createElement("span");
+        pill.className = "mention" + (forMe ? " me" : "");
+        pill.textContent = "@" + match.name;
+        el.appendChild(pill);
+        uids.add(match.uid);
+        if (forMe) mentionsMe = true;
+        i = at + 1 + match.name.length;
+      } else {
+        el.appendChild(document.createTextNode("@"));
+        i = at + 1;
+      }
+    }
+    return { mentionsMe, uids: Array.from(uids) };
+  }
+
+  let mentionItems = [];
+  let mentionIndex = 0;
+  let mentionStart = -1;
+  const mentionPopup = $("#mention-popup");
+  const mentionList = $("#mention-list");
+
+  function mentionCandidates(q) {
+    if (!currentServer) return [];
+    const pool = currentServer.isHome
+      ? allUsers()
+      : (currentServer.memberIds || []).map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }));
+    const items = pool
+      .filter((u) => u.displayName && !u.banned && u.displayName.toLowerCase().includes(q))
+      .sort(
+        (a, b) =>
+          (a.displayName.toLowerCase().startsWith(q) ? 0 : 1) - (b.displayName.toLowerCase().startsWith(q) ? 0 : 1) ||
+          a.displayName.localeCompare(b.displayName)
+      )
+      .slice(0, 8)
+      .map((u) => ({ uid: u.uid, name: u.displayName, profile: u }));
+    if ("everyone".startsWith(q) && canManage(currentServer)) items.unshift({ uid: "everyone", name: "everyone" });
+    return items;
+  }
+
+  function closeMentionPopup() {
+    mentionPopup.hidden = true;
+    mentionItems = [];
+    mentionStart = -1;
+  }
+
+  function updateMentionPopup() {
+    const input = $("#message-input");
+    const caret = input.selectionStart;
+    const before = input.value.slice(0, caret);
+    const at = before.lastIndexOf("@");
+    if (at === -1 || (at > 0 && isWordChar(before[at - 1])) || before.slice(at).length > 32 || before.slice(at).includes("\n")) {
+      closeMentionPopup();
+      return;
+    }
+    const q = before.slice(at + 1).toLowerCase();
+    mentionItems = mentionCandidates(q);
+    if (!mentionItems.length) {
+      closeMentionPopup();
+      return;
+    }
+    mentionStart = at;
+    mentionIndex = Math.min(mentionIndex, mentionItems.length - 1);
+    renderMentionPopup();
+    mentionPopup.hidden = false;
+  }
+
+  function renderMentionPopup() {
+    mentionList.innerHTML = "";
+    mentionItems.forEach((item, idx) => {
+      const row = document.createElement("div");
+      row.className = "mention-item" + (idx === mentionIndex ? " active" : "");
+      if (item.uid === "everyone") {
+        const tag = document.createElement("span");
+        tag.className = "mention-everyone";
+        tag.textContent = "@";
+        row.appendChild(tag);
+      } else {
+        row.appendChild(makeAvatar(item.profile, item.uid, "avatar-24", false));
+      }
+      const name = document.createElement("span");
+      name.textContent = item.uid === "everyone" ? "everyone" : item.name;
+      row.appendChild(name);
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        insertMention(item);
+      });
+      mentionList.appendChild(row);
+    });
+  }
+
+  function insertMention(item) {
+    const input = $("#message-input");
+    const caret = input.selectionStart;
+    const value = input.value;
+    const inserted = "@" + item.name + " ";
+    input.value = value.slice(0, mentionStart) + inserted + value.slice(caret);
+    const pos = mentionStart + inserted.length;
+    input.setSelectionRange(pos, pos);
+    input.focus();
+    closeMentionPopup();
+  }
+
+  $("#message-input").addEventListener("input", () => {
+    mentionIndex = 0;
+    updateMentionPopup();
+  });
+  $("#message-input").addEventListener("blur", () => setTimeout(closeMentionPopup, 150));
+
   $("#send-btn").addEventListener("click", sendMessage);
   $("#message-input").addEventListener("keydown", (e) => {
+    if (!mentionPopup.hidden) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        mentionIndex = (mentionIndex + 1) % mentionItems.length;
+        renderMentionPopup();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length;
+        renderMentionPopup();
+        return;
+      }
+      if (e.key === "Enter" || e.keyCode === 13 || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(mentionItems[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMentionPopup();
+        return;
+      }
+    }
     if ((e.key === "Enter" || e.keyCode === 13) && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -1457,11 +1634,13 @@ const TEMPLATE = `
     const input = $("#message-input");
     const text = input.value.trim();
     if ((!text && !pendingImage) || !currentServer || !currentTextChannel || !me) return;
+    closeMentionPopup();
     const payload = {
       text,
       uid: me.uid,
       displayName: me.displayName,
       avatarEmoji: me.avatarEmoji,
+      mentions: renderRichText(document.createElement("div"), text).uids,
       createdAt: serverTimestamp(),
     };
     if (pendingImage) payload.imageData = pendingImage;

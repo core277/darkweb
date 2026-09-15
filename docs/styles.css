@@ -456,7 +456,28 @@ svg { width: 20px; height: 20px; display: block; }
 }
 .role-badge.banned { background: var(--red); }
 
-#composer { padding: 0 16px 24px; flex-shrink: 0; }
+#composer { padding: 0 16px 24px; flex-shrink: 0; position: relative; }
+#mention-popup {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% - 8px);
+  background: var(--sidebar);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  padding: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 4;
+}
+.mention-title { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); padding: 4px 8px 6px; }
+.mention-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; cursor: pointer; color: var(--text); font-size: 15px; }
+.mention-item.active, .mention-item:hover { background: var(--sidebar-active); color: #fff; }
+.mention-everyone { width: 24px; height: 24px; border-radius: 50%; background: var(--blurple); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #c9cdfb; border-radius: 3px; padding: 0 2px; font-weight: 500; cursor: default; }
+.mention.me { background: rgba(88, 101, 242, 0.65); color: #fff; }
+.msg.mentioned { background: rgba(250, 166, 26, 0.08); box-shadow: inset 2px 0 0 var(--yellow); }
+.msg.mentioned:hover { background: rgba(250, 166, 26, 0.14); }
 #image-preview {
   position: relative;
   background: var(--sidebar);
