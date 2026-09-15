@@ -2,7 +2,20 @@ import {
   collection, doc, setDoc, deleteDoc, addDoc, onSnapshot, query, where, getDocs, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+// STUN finds a direct path; the TURN relay is the fallback for networks that block
+// device-to-device traffic (common on school / guest Wi-Fi with client isolation).
+const ICE_SERVERS = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  {
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
 const MAX_PARTICIPANTS = 6;
 
 // Mesh WebRTC voice channel, signaled through Firestore documents (offer/answer/ICE
@@ -11,17 +24,20 @@ const MAX_PARTICIPANTS = 6;
 // `join()` takes the Firestore path segments of the voice channel document, e.g.
 // ["servers", serverId, "voiceChannels", channelId].
 export class VoiceManager {
-  constructor(db, uid, profile, { onParticipantsChange, onRemoteStream, onError } = {}) {
+  constructor(db, uid, profile, { onParticipantsChange, onRemoteStream, onPeerState, onError } = {}) {
     this.db = db;
     this.uid = uid;
     this.displayName = profile.displayName;
     this.avatarEmoji = profile.avatarEmoji;
     this.onParticipantsChange = onParticipantsChange || (() => {});
     this.onRemoteStream = onRemoteStream || (() => {});
+    this.onPeerState = onPeerState || (() => {});
     this.onError = onError || (() => {});
     this.base = null;
     this.localStream = null;
     this.peers = new Map();
+    this.pendingCandidates = new Map();
+    this.signalQueue = Promise.resolve();
     this.unsubParticipants = null;
     this.unsubSignals = null;
   }
@@ -45,10 +61,16 @@ export class VoiceManager {
     }
 
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
     } catch (e) {
       this.base = null;
-      this.onError("Microphone permission denied or unavailable.");
+      this.onError(
+        e && e.name === "NotAllowedError"
+          ? "Microphone access was blocked. Allow the mic for this site and try again."
+          : "Couldn't open the microphone (" + (e && e.message ? e.message : "unknown error") + ")."
+      );
       return false;
     }
 
@@ -69,19 +91,31 @@ export class VoiceManager {
       }
     });
 
+    // Signals must be applied in order (offer before its candidates), so they're chained.
     const myIncoming = query(this._signals(), where("to", "==", this.uid));
     this.unsubSignals = onSnapshot(myIncoming, (qs) => {
-      qs.docChanges().forEach(async (change) => {
+      qs.docChanges().forEach((change) => {
         if (change.type !== "added") return;
-        try {
-          await this._handleSignal(change.doc.data());
-        } finally {
-          deleteDoc(change.doc.ref).catch(() => {});
-        }
+        const data = change.doc.data();
+        this.signalQueue = this.signalQueue
+          .then(() => this._handleSignal(data))
+          .catch((e) => console.warn("Dark Web voice: signal error", e))
+          .finally(() => deleteDoc(change.doc.ref).catch(() => {}));
       });
     });
 
     return true;
+  }
+
+  async _send(to, type, payload) {
+    if (!this.base) return;
+    await addDoc(this._signals(), {
+      from: this.uid,
+      to,
+      type,
+      payload: JSON.stringify(payload),
+      createdAt: serverTimestamp(),
+    });
   }
 
   async _connectTo(otherUid) {
@@ -89,58 +123,70 @@ export class VoiceManager {
     this.peers.set(otherUid, pc);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await addDoc(this._signals(), {
-      from: this.uid,
-      to: otherUid,
-      type: "offer",
-      payload: JSON.stringify(offer),
-      createdAt: serverTimestamp(),
-    });
+    await this._send(otherUid, "offer", offer);
   }
 
   _createPeerConnection(otherUid) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream));
     pc.onicecandidate = (e) => {
-      if (e.candidate && this.base) {
-        addDoc(this._signals(), {
-          from: this.uid,
-          to: otherUid,
-          type: "candidate",
-          payload: JSON.stringify(e.candidate),
-          createdAt: serverTimestamp(),
-        }).catch(() => {});
-      }
+      if (e.candidate) this._send(otherUid, "candidate", e.candidate).catch(() => {});
     };
     pc.ontrack = (e) => this.onRemoteStream(otherUid, e.streams[0]);
+    pc.onconnectionstatechange = () => {
+      this.onPeerState(otherUid, pc.connectionState);
+      if (pc.connectionState === "failed" && this.uid < otherUid) {
+        // Initiator retries with a fresh ICE gathering round.
+        pc.restartIce();
+        pc.createOffer({ iceRestart: true })
+          .then((offer) => pc.setLocalDescription(offer).then(() => this._send(otherUid, "offer", offer)))
+          .catch(() => {});
+      }
+    };
+    this.onPeerState(otherUid, "connecting");
     return pc;
   }
 
+  async _flushCandidates(uid, pc) {
+    const queued = this.pendingCandidates.get(uid) || [];
+    this.pendingCandidates.delete(uid);
+    for (const c of queued) {
+      try {
+        await pc.addIceCandidate(c);
+      } catch (e) {
+        // stale candidate from an earlier negotiation; ignore
+      }
+    }
+  }
+
   async _handleSignal(data) {
-    const { from, type, payload } = data;
+    if (!this.base) return;
+    const { from, type } = data;
+    const payload = JSON.parse(data.payload);
     let pc = this.peers.get(from);
     if (!pc) {
       pc = this._createPeerConnection(from);
       this.peers.set(from, pc);
     }
     if (type === "offer") {
-      await pc.setRemoteDescription(JSON.parse(payload));
+      await pc.setRemoteDescription(payload);
+      await this._flushCandidates(from, pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await addDoc(this._signals(), {
-        from: this.uid,
-        to: from,
-        type: "answer",
-        payload: JSON.stringify(answer),
-        createdAt: serverTimestamp(),
-      });
+      await this._send(from, "answer", answer);
     } else if (type === "answer") {
-      await pc.setRemoteDescription(JSON.parse(payload));
+      await pc.setRemoteDescription(payload);
+      await this._flushCandidates(from, pc);
     } else if (type === "candidate") {
+      if (!pc.remoteDescription) {
+        if (!this.pendingCandidates.has(from)) this.pendingCandidates.set(from, []);
+        this.pendingCandidates.get(from).push(payload);
+        return;
+      }
       try {
-        await pc.addIceCandidate(JSON.parse(payload));
+        await pc.addIceCandidate(payload);
       } catch (e) {
-        // candidate can arrive before remote description is set in rare races; safe to ignore
+        // ignore candidates that no longer apply
       }
     }
   }
@@ -148,10 +194,13 @@ export class VoiceManager {
   _closePeer(uid) {
     const pc = this.peers.get(uid);
     if (pc) {
+      pc.onconnectionstatechange = null;
       pc.close();
       this.peers.delete(uid);
     }
+    this.pendingCandidates.delete(uid);
     this.onRemoteStream(uid, null);
+    this.onPeerState(uid, "closed");
   }
 
   setMuted(muted) {

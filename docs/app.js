@@ -106,11 +106,15 @@ const TEMPLATE = `
         <div id="voice-channel-list"></div>
       </div>
       <div id="voice-panel" hidden>
-        <div class="voice-panel-info">
-          <div class="voice-connected">Voice Connected</div>
-          <div id="voice-panel-channel" class="voice-panel-channel"></div>
+        <div class="voice-panel-row">
+          <div class="voice-panel-info">
+            <div class="voice-connected">Voice Connected</div>
+            <div id="voice-panel-channel" class="voice-panel-channel"></div>
+          </div>
+          <button id="leave-voice-btn" class="icon-btn" title="Disconnect">${ICONS.disconnect}</button>
         </div>
-        <button id="leave-voice-btn" class="icon-btn" title="Disconnect">${ICONS.disconnect}</button>
+        <div id="voice-peers"></div>
+        <button id="audio-unlock-btn" class="btn btn-primary btn-sm btn-block" hidden>Tap to enable audio</button>
       </div>
       <div id="user-panel">
         <div id="user-panel-avatar"></div>
@@ -545,7 +549,9 @@ const TEMPLATE = `
     currentVoiceServer = null;
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
+    peerStates.clear();
     $("#voice-panel").hidden = true;
+    $("#audio-unlock-btn").hidden = true;
     renderChannels();
     renderUserPanel();
   }
@@ -1682,8 +1688,15 @@ const TEMPLATE = `
     if (currentVoice) await currentVoice.leave();
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
+    peerStates.clear();
+    $("#audio-unlock-btn").hidden = true;
     currentVoice = new VoiceManager(db, me.uid, { displayName: me.displayName, avatarEmoji: me.avatarEmoji }, {
       onRemoteStream: attachRemoteAudio,
+      onPeerState: (uid, state) => {
+        if (state === "closed") peerStates.delete(uid);
+        else peerStates.set(uid, state);
+        renderVoicePeers();
+      },
       onError: (msg) => alert(msg),
     });
     const ok = await currentVoice.join(["servers", sid, "voiceChannels", ch.id]);
@@ -1696,11 +1709,46 @@ const TEMPLATE = `
     currentVoiceServer = sid;
     $("#voice-panel").hidden = false;
     $("#voice-panel-channel").textContent = ch.name + " / " + currentServer.name;
+    renderVoicePeers();
     renderChannels();
     renderUserPanel();
   }
 
+  const peerStates = new Map();
+  function renderVoicePeers() {
+    const box = $("#voice-peers");
+    box.innerHTML = "";
+    if (!currentVoiceChannel) return;
+    if (!peerStates.size) {
+      box.innerHTML = '<div class="voice-peer muted-text">Waiting for others to join…</div>';
+      return;
+    }
+    const labels = {
+      new: "connecting…",
+      connecting: "connecting…",
+      connected: "connected",
+      disconnected: "reconnecting…",
+      failed: "failed — retrying",
+    };
+    peerStates.forEach((state, uid) => {
+      const row = document.createElement("div");
+      row.className = "voice-peer state-" + state;
+      const name = document.createElement("span");
+      name.textContent = (profileFor(uid).displayName || "Member");
+      const st = document.createElement("span");
+      st.className = "voice-peer-state";
+      st.textContent = labels[state] || state;
+      row.appendChild(name);
+      row.appendChild(st);
+      box.appendChild(row);
+    });
+  }
+
   $("#leave-voice-btn").addEventListener("click", leaveVoice);
+  $("#audio-unlock-btn").addEventListener("click", () => {
+    remoteAudioEls.forEach((el) => el.play().catch(() => {}));
+    $("#audio-unlock-btn").hidden = true;
+  });
 
   function updateMuteButton() {
     const btn = $("#mute-btn");
@@ -1727,10 +1775,14 @@ const TEMPLATE = `
     if (!el) {
       el = document.createElement("audio");
       el.autoplay = true;
+      el.setAttribute("playsinline", "");
       shadow.appendChild(el);
       remoteAudioEls.set(uid, el);
     }
     el.srcObject = stream;
+    // Mobile browsers may refuse autoplay of remote audio; offer a tap-to-enable fallback.
+    const p = el.play();
+    if (p && p.catch) p.catch(() => { $("#audio-unlock-btn").hidden = false; });
   }
 
   // ---------- user settings ----------

@@ -327,13 +327,18 @@ svg { width: 20px; height: 20px; display: block; }
 .voice-member:hover { background: var(--sidebar-hover); color: var(--text); }
 
 #voice-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 8px 8px 8px 10px;
   background: var(--panel);
   border-bottom: 1px solid #0a0b0c;
 }
+.voice-panel-row { display: flex; align-items: center; justify-content: space-between; }
+#voice-peers { margin-top: 4px; }
+.voice-peer { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text); padding: 2px 0; }
+.voice-peer.muted-text { color: var(--muted); }
+.voice-peer-state { color: var(--muted); }
+.voice-peer.state-connected .voice-peer-state { color: var(--green); }
+.voice-peer.state-failed .voice-peer-state, .voice-peer.state-disconnected .voice-peer-state { color: var(--yellow); }
+#audio-unlock-btn { margin-top: 8px; }
 .voice-connected { color: var(--green); font-size: 13px; font-weight: 600; }
 .voice-panel-channel { color: var(--muted); font-size: 12px; }
 #voice-panel .icon-btn:hover { color: var(--red); }
