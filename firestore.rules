@@ -34,6 +34,14 @@ service cloud.firestore {
     function canManage(sid) {
       return isAdmin() || isOwner(sid);
     }
+    // Role permissions are denormalised onto the server doc as memberPerms: { uid: [perm, ...] }.
+    function hasPerm(sid, p) {
+      let d = serverData(sid);
+      return isSignedIn()
+          && ('memberPerms' in d)
+          && (request.auth.uid in d.memberPerms)
+          && (p in d.memberPerms[request.auth.uid]);
+    }
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -115,13 +123,32 @@ service cloud.firestore {
 
       match /channels/{channelId} {
         allow read: if canAccess(serverId);
-        allow create, update, delete: if canManage(serverId);
+        allow create, update, delete: if canManage(serverId) || hasPerm(serverId, 'manageChannels');
 
         match /messages/{messageId} {
           allow read: if canAccess(serverId);
           allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
-          allow delete: if canManage(serverId) || (isSignedIn() && resource.data.uid == request.auth.uid);
+          allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
+                        || (isSignedIn() && resource.data.uid == request.auth.uid);
           allow update: if false;
+        }
+
+        // Forum channels: posts (threads) with their own message lists.
+        match /posts/{postId} {
+          allow read: if canAccess(serverId);
+          allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
+          allow update: if canAccess(serverId) && isNotBanned()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivity', 'messageCount']);
+          allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
+                        || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+          match /messages/{messageId} {
+            allow read: if canAccess(serverId);
+            allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
+            allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
+                          || (isSignedIn() && resource.data.uid == request.auth.uid);
+            allow update: if false;
+          }
         }
       }
 

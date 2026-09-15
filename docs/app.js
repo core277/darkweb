@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
-  onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch,
+  onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch, increment,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const DEFAULT_EMOJI = "🙂";
@@ -43,7 +43,15 @@ const ICONS = {
   chevron: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>',
   emoji: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm3.5-9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>',
   chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
+  forum: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6h-2v9H6v2a1 1 0 001 1h11l4 4V7a1 1 0 00-1-1zm-4 6V3a1 1 0 00-1-1H3a1 1 0 00-1 1v14l4-4h10a1 1 0 001-1z"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
 };
+
+const PERMS = [
+  ["manageChannels", "Manage channels"],
+  ["manageMessages", "Delete anyone's messages"],
+  ["mentionEveryone", "Mention @everyone"],
+];
 
 const EMOJI_GROUPS = [
   ["Smileys", "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 🥲 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🫡 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 🥸 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾"],
@@ -124,6 +132,11 @@ const TEMPLATE = `
           <button class="category-add" data-type="voice" title="Create channel" hidden>${ICONS.plus}</button>
         </div>
         <div id="voice-channel-list"></div>
+        <div class="category">
+          <span class="category-name">Forums</span>
+          <button class="category-add" data-type="forum" title="Create forum" hidden>${ICONS.plus}</button>
+        </div>
+        <div id="forum-channel-list"></div>
       </div>
       <div id="voice-panel" hidden>
         <div class="voice-panel-row">
@@ -153,9 +166,11 @@ const TEMPLATE = `
     <main id="main-pane">
       <header id="channel-header">
         <button id="sidebar-toggle-btn" class="icon-btn sidebar-toggle" title="Channels">${ICONS.menu}</button>
+        <button id="post-back-btn" class="icon-btn" title="Back to posts" hidden>${ICONS.back}</button>
         <span class="hash-icon" id="channel-header-icon">${ICONS.hash}</span>
         <span id="channel-header-name">Welcome</span>
         <div class="header-actions">
+          <button id="new-post-btn" class="btn btn-primary btn-sm" hidden>New post</button>
           <button id="toggle-members-btn" class="icon-btn" title="Toggle member list">${ICONS.members}</button>
           <button id="minimize-btn" class="icon-btn" title="Minimize">${ICONS.minimize}</button>
           <button id="close-btn" class="icon-btn" title="Close">${ICONS.close}</button>
@@ -243,6 +258,20 @@ const TEMPLATE = `
     </div>
   </div>
 
+  <div id="new-post-modal" class="modal" hidden>
+    <div class="modal-card small-card">
+      <div class="modal-header"><span>New post</span><button id="new-post-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="admin-tab">
+        <label class="field-label">Title</label>
+        <input id="new-post-title" maxlength="80" autocomplete="off" />
+        <label class="field-label">Message</label>
+        <input id="new-post-body" maxlength="500" autocomplete="off" />
+        <div class="row-end"><button id="new-post-create" class="btn btn-primary">Post</button></div>
+        <div id="new-post-msg" class="form-msg"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="new-dm-modal" class="modal" hidden>
     <div class="modal-card small-card">
       <div class="modal-header"><span>New message</span><button id="new-dm-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
@@ -291,9 +320,20 @@ const TEMPLATE = `
       <div class="modal-tabs">
         <button class="tab-btn active" data-stab="overview">Overview</button>
         <button class="tab-btn" data-stab="channels">Channels</button>
+        <button class="tab-btn" data-stab="roles">Roles</button>
         <button class="tab-btn" data-stab="members">Members</button>
       </div>
       <div id="stab-overview" class="admin-tab">
+        <label class="field-label">Server icon</label>
+        <div class="pfp-row">
+          <div id="server-icon-preview"></div>
+          <div class="pfp-actions">
+            <button id="server-icon-upload-btn" class="btn btn-primary">Upload icon</button>
+            <button id="server-icon-remove-btn" class="btn btn-secondary">Remove icon</button>
+            <input type="file" id="server-icon-input" accept="image/*" hidden />
+            <div class="hint">Shown in the rail. Cropped to a square.</div>
+          </div>
+        </div>
         <label class="field-label">Server name</label>
         <input id="server-rename-input" maxlength="40" />
         <div class="row-end"><button id="server-rename-btn" class="btn btn-primary">Save</button></div>
@@ -310,10 +350,20 @@ const TEMPLATE = `
           <select id="new-channel-type">
             <option value="text">Text</option>
             <option value="voice">Voice</option>
+            <option value="forum">Forum</option>
           </select>
           <button type="submit" class="btn btn-primary">Create</button>
         </form>
         <div id="admin-channel-list"></div>
+      </div>
+      <div id="stab-roles" class="admin-tab" hidden>
+        <form id="new-role-form" class="role-form">
+          <input id="new-role-name" placeholder="New role name" maxlength="24" autocomplete="off" />
+          <input id="new-role-color" type="color" value="#5865f2" title="Role colour" />
+          <button type="submit" class="btn btn-primary">Add role</button>
+        </form>
+        <div class="hint">Roles higher in the list take priority for name colours and member grouping.</div>
+        <div id="role-list"></div>
       </div>
       <div id="stab-members" class="admin-tab" hidden><div id="server-member-list"></div></div>
     </div>
@@ -394,6 +444,9 @@ const TEMPLATE = `
   let viewMode = "server";
   let dms = [];
   let currentDm = null;
+  let currentPost = null;
+  let postsCache = [];
+  let unsubPosts = null;
   let unsubDms = null;
   let unsubDmMessages = null;
   let homeServer = null;
@@ -471,6 +524,33 @@ const TEMPLATE = `
   const profileFor = (uid, fallback) => usersCache.get(uid) || fallback || {};
   const isGlobalAdmin = () => me && me.role === "admin";
   const canManage = (s) => !!(me && s && (isGlobalAdmin() || s.ownerUid === me.uid));
+  const hasPerm = (s, p) => !!(me && s && (canManage(s) || ((s.memberPerms || {})[me.uid] || []).includes(p)));
+  const serverRoles = (s) => (s && Array.isArray(s.roles) ? s.roles : []);
+  const memberRoleIds = (s, uid) => ((s && s.memberRoles) || {})[uid] || [];
+  const topRole = (s, uid) => {
+    const ids = memberRoleIds(s, uid);
+    return serverRoles(s).find((r) => ids.includes(r.id)) || null;
+  };
+  // Permissions are denormalised per member so Firestore rules can check them without loops.
+  function computeMemberPerms(roles, memberRoles) {
+    const out = {};
+    Object.entries(memberRoles || {}).forEach(([uid, ids]) => {
+      const set = new Set();
+      (ids || []).forEach((id) => {
+        const r = roles.find((x) => x.id === id);
+        if (r) (r.perms || []).forEach((p) => set.add(p));
+      });
+      if (set.size) out[uid] = Array.from(set);
+    });
+    return out;
+  }
+  async function saveRoles(roles, memberRoles) {
+    await updateDoc(doc(db, "servers", currentServer.id), {
+      roles,
+      memberRoles,
+      memberPerms: computeMemberPerms(roles, memberRoles),
+    });
+  }
   const isMemberOf = (s) => !!(me && s && (s.isHome || (s.memberIds || []).includes(me.uid)));
   const allServers = () => (homeServer ? [homeServer] : []).concat(servers.filter((s) => s.id !== HOME_ID));
   const allUsers = () => Array.from(usersCache.entries()).map(([uid, u]) => ({ uid, ...u }));
@@ -571,7 +651,10 @@ const TEMPLATE = `
   function teardownServerListeners() {
     if (unsubMessages) unsubMessages();
     if (unsubChannels) unsubChannels();
-    unsubMessages = unsubChannels = null;
+    if (unsubPosts) unsubPosts();
+    unsubMessages = unsubChannels = unsubPosts = null;
+    currentPost = null;
+    postsCache = [];
     voiceListeners.forEach((fn) => fn());
     voiceListeners.clear();
     voiceParticipants.clear();
@@ -819,8 +902,18 @@ const TEMPLATE = `
     const members = source.filter((u) => u.displayName && !u.banned);
     const rank = (u) => (u.uid === currentServer.ownerUid ? 0 : u.role === "admin" ? 1 : 2);
     const sortFn = (a, b) => rank(a) - rank(b) || (a.displayName || "").localeCompare(b.displayName || "");
-    const online = members.filter(isOnline).sort(sortFn);
+    const online = members.filter(isOnline);
     const offline = members.filter((u) => !isOnline(u)).sort(sortFn);
+    const roles = serverRoles(currentServer);
+    const byRole = new Map();
+    const noRole = [];
+    online.forEach((u) => {
+      const r = topRole(currentServer, u.uid);
+      if (r) {
+        if (!byRole.has(r.id)) byRole.set(r.id, []);
+        byRole.get(r.id).push(u);
+      } else noRole.push(u);
+    });
 
     const section = (title, arr, dim) => {
       if (!arr.length) return;
@@ -841,6 +934,8 @@ const TEMPLATE = `
         const name = document.createElement("div");
         name.className = "member-name";
         name.textContent = u.displayName;
+        const role = topRole(currentServer, u.uid);
+        if (role && role.color) name.style.color = role.color;
         if (u.uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
         else if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
         text.appendChild(name);
@@ -854,7 +949,10 @@ const TEMPLATE = `
         list.appendChild(row);
       });
     };
-    section("Online", online, false);
+    roles.forEach((r) => {
+      if (byRole.has(r.id)) section(r.name, byRole.get(r.id).sort(sortFn), false);
+    });
+    section("Online", noRole.sort(sortFn), false);
     section("Offline", offline, true);
     if (!members.length) list.innerHTML = '<div class="empty-hint small">No members yet</div>';
   }
@@ -922,20 +1020,20 @@ const TEMPLATE = `
     );
   }
 
-  // Server doc + default channels commit atomically so the channel listener never races the server.
+  // The server doc must be committed before the channels: the channel rules look the server up.
+  // Fixed channel ids keep this idempotent if two admins race to create HOME.
   async function createServerWithDefaults(id, name, extra) {
-    const batch = writeBatch(db);
-    batch.set(doc(db, "servers", id), {
+    await setDoc(doc(db, "servers", id), {
       name,
       ownerUid: me.uid,
       memberIds: [me.uid],
       createdAt: serverTimestamp(),
       ...(extra || {}),
     });
-    // Fixed ids so two admins racing to create HOME can't produce duplicate default channels.
-    batch.set(doc(db, "servers", id, "channels", "general"), { name: "general", type: "text", createdAt: serverTimestamp() });
-    batch.set(doc(db, "servers", id, "channels", "voice"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
-    await batch.commit();
+    await Promise.all([
+      setDoc(doc(db, "servers", id, "channels", "general"), { name: "general", type: "text", createdAt: serverTimestamp() }),
+      setDoc(doc(db, "servers", id, "channels", "voice"), { name: "voice", type: "voice", createdAt: serverTimestamp() }),
+    ]);
   }
 
   // Membership in HOME is implicit in the rules, but we also record it so older rule sets
@@ -1006,7 +1104,14 @@ const TEMPLATE = `
         (!inDm() && currentServer && currentServer.id === s.id ? " active" : "") +
         (isMemberOf(s) ? "" : " guest");
       el.title = s.name + (isMemberOf(s) ? "" : " (viewing as admin)");
-      el.textContent = serverInitials(s.name);
+      if (s.iconUrl) {
+        const img = document.createElement("img");
+        img.src = s.iconUrl;
+        img.alt = "";
+        el.appendChild(img);
+      } else {
+        el.textContent = serverInitials(s.name);
+      }
       el.style.setProperty("--accent", avatarColor(s.id));
       el.addEventListener("click", () => selectServer(s, true));
       list.appendChild(el);
@@ -1026,6 +1131,8 @@ const TEMPLATE = `
     renderServerMemberList();
     if (same) {
       renderChannels();
+      renderRoleList();
+      renderServerIconPreview();
       if (inDm()) return;
       if (userInitiated && !unsubMessages) {
         const ch = currentTextChannel || channelsCache.find((c) => c.type === "text");
@@ -1073,9 +1180,9 @@ const TEMPLATE = `
     $("#server-name").textContent = s ? s.name : "Dark Web";
     $("#server-header").disabled = !s;
     $("#menu-invite").hidden = !!(s && s.isHome);
-    $("#menu-settings").hidden = !canManage(s);
+    $("#menu-settings").hidden = !(canManage(s) || hasPerm(s, "manageChannels"));
     $("#menu-leave").hidden = !(s && !s.isHome && isMemberOf(s) && s.ownerUid !== (me && me.uid));
-    $$(".category-add").forEach((b) => (b.hidden = !canManage(s)));
+    $$(".category-add").forEach((b) => (b.hidden = !hasPerm(s, "manageChannels")));
   }
 
   $("#server-header").addEventListener("click", () => {
@@ -1185,15 +1292,174 @@ const TEMPLATE = `
   bindTabs("data-stab", "stab-");
   function openServerSettings(tab) {
     if (!currentServer) return;
+    const full = canManage(currentServer);
     $("#server-settings-title").textContent = currentServer.name + " — Settings";
     $("#server-rename-input").value = currentServer.name;
     $("#settings-invite-code").textContent = currentServer.isHome ? "Everyone joins automatically" : currentServer.id;
     $("#server-delete-btn").hidden = !!currentServer.isHome;
     setMsg("#server-settings-msg", "");
+    $$(".tab-btn[data-stab]").forEach((b) => {
+      const t = b.dataset.stab;
+      b.hidden = t === "channels" ? !hasPerm(currentServer, "manageChannels") : !full;
+    });
+    if (!full && tab !== "channels") tab = "channels";
+    renderServerIconPreview();
     renderAdminChannelList();
+    renderRoleList();
     renderServerMemberList();
     showTabs("data-stab", "stab-", tab);
     openModal("server-settings-modal");
+  }
+
+  function renderServerIconPreview() {
+    const box = $("#server-icon-preview");
+    if (!box || !currentServer) return;
+    box.innerHTML = "";
+    const el = document.createElement("div");
+    el.className = "server-icon-big";
+    if (currentServer.iconUrl) {
+      const img = document.createElement("img");
+      img.src = currentServer.iconUrl;
+      img.alt = "";
+      el.appendChild(img);
+    } else {
+      el.textContent = serverInitials(currentServer.name);
+      el.style.background = avatarColor(currentServer.id);
+    }
+    box.appendChild(el);
+  }
+  $("#server-icon-upload-btn").addEventListener("click", () => $("#server-icon-input").click());
+  $("#server-icon-input").addEventListener("change", async () => {
+    const file = $("#server-icon-input").files[0];
+    $("#server-icon-input").value = "";
+    if (!file || !currentServer) return;
+    try {
+      const iconUrl = await readImageFile(file, { maxDim: 128, square: true, quality: 0.85 });
+      await updateDoc(doc(db, "servers", currentServer.id), { iconUrl });
+      setMsg("#server-settings-msg", "Icon updated.", "ok");
+    } catch (e) {
+      setMsg("#server-settings-msg", e.message, "error");
+    }
+  });
+  $("#server-icon-remove-btn").addEventListener("click", async () => {
+    if (!currentServer) return;
+    try {
+      await updateDoc(doc(db, "servers", currentServer.id), { iconUrl: deleteField() });
+    } catch (e) {
+      setMsg("#server-settings-msg", e.message, "error");
+    }
+  });
+
+  // ---- roles ----
+  function renderRoleList() {
+    const list = $("#role-list");
+    if (!list || !currentServer) return;
+    list.innerHTML = "";
+    const roles = serverRoles(currentServer);
+    if (!roles.length) {
+      list.innerHTML = '<div class="empty-hint small">No roles yet. Add one above, then hand it out in the Members tab.</div>';
+      return;
+    }
+    roles.forEach((r, idx) => {
+      const card = document.createElement("div");
+      card.className = "role-card";
+      const head = document.createElement("div");
+      head.className = "role-head";
+      const color = document.createElement("input");
+      color.type = "color";
+      color.value = r.color || "#5865f2";
+      color.title = "Role colour";
+      color.addEventListener("change", () => updateRole(r.id, { color: color.value }));
+      const name = document.createElement("input");
+      name.className = "role-name-input";
+      name.value = r.name;
+      name.maxLength = 24;
+      name.addEventListener("change", () => {
+        if (name.value.trim()) updateRole(r.id, { name: name.value.trim() });
+      });
+      const mk = (label, cls, fn, disabled) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-sm " + cls;
+        b.textContent = label;
+        b.disabled = !!disabled;
+        b.addEventListener("click", fn);
+        return b;
+      };
+      head.appendChild(color);
+      head.appendChild(name);
+      head.appendChild(mk("↑", "btn-secondary", () => moveRole(idx, -1), idx === 0));
+      head.appendChild(mk("↓", "btn-secondary", () => moveRole(idx, 1), idx === roles.length - 1));
+      head.appendChild(mk("Delete", "btn-danger", () => deleteRole(r)));
+      card.appendChild(head);
+      const perms = document.createElement("div");
+      perms.className = "role-perms";
+      PERMS.forEach(([key, label]) => {
+        const lab = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = (r.perms || []).includes(key);
+        cb.addEventListener("change", () => {
+          const set = new Set(r.perms || []);
+          if (cb.checked) set.add(key);
+          else set.delete(key);
+          updateRole(r.id, { perms: Array.from(set) });
+        });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(label));
+        perms.appendChild(lab);
+      });
+      card.appendChild(perms);
+      list.appendChild(card);
+    });
+  }
+
+  async function updateRole(id, patch) {
+    const roles = serverRoles(currentServer).map((r) => (r.id === id ? { ...r, ...patch } : r));
+    try {
+      await saveRoles(roles, currentServer.memberRoles || {});
+    } catch (e) {
+      setMsg("#server-settings-msg", e.message, "error");
+    }
+  }
+  async function moveRole(idx, dir) {
+    const roles = serverRoles(currentServer).slice();
+    const j = idx + dir;
+    if (j < 0 || j >= roles.length) return;
+    [roles[idx], roles[j]] = [roles[j], roles[idx]];
+    await saveRoles(roles, currentServer.memberRoles || {});
+  }
+  async function deleteRole(r) {
+    if (!confirm('Delete the "' + r.name + '" role?')) return;
+    const roles = serverRoles(currentServer).filter((x) => x.id !== r.id);
+    const memberRoles = {};
+    Object.entries(currentServer.memberRoles || {}).forEach(([uid, ids]) => {
+      const rest = (ids || []).filter((id) => id !== r.id);
+      if (rest.length) memberRoles[uid] = rest;
+    });
+    await saveRoles(roles, memberRoles);
+  }
+  $("#new-role-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentServer) return;
+    const name = $("#new-role-name").value.trim();
+    if (!name) return;
+    const roles = serverRoles(currentServer).concat([{ id: genCode(), name, color: $("#new-role-color").value, perms: [] }]);
+    try {
+      await saveRoles(roles, currentServer.memberRoles || {});
+      $("#new-role-name").value = "";
+    } catch (err) {
+      setMsg("#server-settings-msg", err.message, "error");
+    }
+  });
+  async function toggleMemberRole(uid, roleId) {
+    const memberRoles = { ...(currentServer.memberRoles || {}) };
+    const cur = new Set(memberRoles[uid] || []);
+    if (cur.has(roleId)) cur.delete(roleId);
+    else cur.add(roleId);
+    if (cur.size) memberRoles[uid] = Array.from(cur);
+    else delete memberRoles[uid];
+    await saveRoles(serverRoles(currentServer), memberRoles);
   }
   $("#server-settings-close").addEventListener("click", () => closeModal("server-settings-modal"));
   $("#server-rename-btn").addEventListener("click", async () => {
@@ -1231,12 +1497,33 @@ const TEMPLATE = `
       const label = document.createElement("span");
       label.className = "admin-label";
       label.appendChild(makeAvatar(u, uid, "avatar-24", false));
+      const nameWrap = document.createElement("span");
       const name = document.createElement("span");
       name.textContent = u.displayName;
-      label.appendChild(name);
-      if (uid === currentServer.ownerUid) label.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
+      const top = topRole(currentServer, uid);
+      if (top && top.color) name.style.color = top.color;
+      nameWrap.appendChild(name);
+      if (uid === currentServer.ownerUid) nameWrap.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
+      const roles = serverRoles(currentServer);
+      if (roles.length) {
+        const chips = document.createElement("div");
+        chips.className = "role-chips";
+        const assigned = memberRoleIds(currentServer, uid);
+        roles.forEach((r) => {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "role-chip" + (assigned.includes(r.id) ? " on" : "") + (canManage(currentServer) ? "" : " static");
+          chip.textContent = r.name;
+          chip.style.setProperty("--chip", r.color || "#5865f2");
+          chip.title = canManage(currentServer) ? "Toggle role" : "";
+          if (canManage(currentServer)) chip.addEventListener("click", () => toggleMemberRole(uid, r.id));
+          chips.appendChild(chip);
+        });
+        nameWrap.appendChild(chips);
+      }
+      label.appendChild(nameWrap);
       const actions = document.createElement("span");
-      if (!currentServer.isHome && uid !== currentServer.ownerUid && uid !== me.uid) {
+      if (canManage(currentServer) && !currentServer.isHome && uid !== currentServer.ownerUid && uid !== me.uid) {
         const kick = document.createElement("button");
         kick.className = "btn btn-danger btn-sm";
         kick.textContent = "Kick";
@@ -1288,7 +1575,7 @@ const TEMPLATE = `
         const stillExists = currentTextChannel && channelsCache.some((c) => c.id === currentTextChannel.id);
         if (!stillExists) {
           currentTextChannel = null;
-          const firstText = channelsCache.find((c) => c.type === "text");
+          const firstText = channelsCache.find((c) => c.type === "text") || channelsCache.find((c) => c.type === "forum");
           if (inDm()) currentTextChannel = firstText || null;
           else if (firstText) selectTextChannel(firstText);
           else showNoChannels();
@@ -1336,10 +1623,23 @@ const TEMPLATE = `
     voiceList.innerHTML = "";
     $$(".category").forEach((c) => (c.hidden = !currentServer));
     if (!currentServer) return;
+    const forumList = $("#forum-channel-list");
+    forumList.innerHTML = "";
     const text = channelsCache.filter((c) => c.type === "text");
     const voice = channelsCache.filter((c) => c.type === "voice");
+    const forums = channelsCache.filter((c) => c.type === "forum");
     if (!text.length) textList.innerHTML = '<div class="empty-hint small">No text channels</div>';
     if (!voice.length) voiceList.innerHTML = '<div class="empty-hint small">No voice channels</div>';
+    if (!forums.length) forumList.innerHTML = '<div class="empty-hint small">No forums</div>';
+
+    forums.forEach((c) => {
+      const el = document.createElement("div");
+      el.className = "channel-item" + (!inDm() && currentTextChannel && currentTextChannel.id === c.id ? " active" : "");
+      el.innerHTML = '<span class="ch-icon">' + ICONS.forum + '</span><span class="ch-name"></span>';
+      el.querySelector(".ch-name").textContent = c.name;
+      el.addEventListener("click", () => selectForumChannel(c));
+      forumList.appendChild(el);
+    });
 
     text.forEach((c) => {
       const el = document.createElement("div");
@@ -1392,6 +1692,7 @@ const TEMPLATE = `
     if (unsubMessages) unsubMessages();
     unsubMessages = null;
     if (inDm()) return;
+    resetForumUi();
     lastMessages = [];
     $("#channel-header-name").textContent = currentServer ? currentServer.name : "Welcome";
     $("#composer").hidden = true;
@@ -1405,13 +1706,28 @@ const TEMPLATE = `
   }
 
   // ---------- messages ----------
-  const messagesCol = () =>
-    inDm()
-      ? collection(db, "dms", currentDm.id, "messages")
-      : collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
+  const messagesCol = () => {
+    if (inDm()) return collection(db, "dms", currentDm.id, "messages");
+    if (currentPost) {
+      return collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "posts", currentPost.id, "messages");
+    }
+    return collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
+  };
+
+  function resetForumUi() {
+    currentPost = null;
+    if (unsubPosts) unsubPosts();
+    unsubPosts = null;
+    postsCache = [];
+    $("#post-back-btn").hidden = true;
+    $("#new-post-btn").hidden = true;
+    $("#channel-header-icon").innerHTML = ICONS.hash;
+  }
 
   function selectTextChannel(ch, attempt = 0) {
+    if (ch.type === "forum") return selectForumChannel(ch, attempt);
     if (inDm()) leaveDmView();
+    resetForumUi();
     const switching = attempt > 0 || !currentTextChannel || currentTextChannel.id !== ch.id;
     currentTextChannel = ch;
     $("#channel-header-name").textContent = ch.name;
@@ -1437,6 +1753,209 @@ const TEMPLATE = `
       })
     );
   }
+
+  // ---- forum channels ----
+  const postsCol = (ch) => collection(db, "servers", currentServer.id, "channels", ch.id, "posts");
+
+  function selectForumChannel(ch, attempt = 0) {
+    if (inDm()) leaveDmView();
+    const switching = attempt > 0 || !currentTextChannel || currentTextChannel.id !== ch.id;
+    currentTextChannel = ch;
+    currentPost = null;
+    if (unsubMessages) unsubMessages();
+    unsubMessages = null;
+    lastMessages = [];
+    $("#channel-header-icon").innerHTML = ICONS.forum;
+    $("#channel-header-name").textContent = ch.name;
+    $("#composer").hidden = true;
+    $("#new-post-btn").hidden = false;
+    $("#post-back-btn").hidden = true;
+    $("#app-screen").classList.remove("sidebar-open");
+    renderChannels();
+    if (!switching) {
+      renderPosts();
+      return;
+    }
+    if (unsubPosts) unsubPosts();
+    postsCache = [];
+    renderPosts();
+    unsubPosts = onSnapshot(
+      query(postsCol(ch), orderBy("lastActivity", "desc"), limit(50)),
+      (qs) => {
+        if (inDm() || !currentTextChannel || currentTextChannel.id !== ch.id) return;
+        postsCache = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (currentPost) {
+          const fresh = postsCache.find((p) => p.id === currentPost.id);
+          if (fresh) {
+            currentPost = fresh;
+            $("#channel-header-name").textContent = fresh.title;
+          } else closePost();
+        } else renderPosts();
+      },
+      (err) => retryOnDenied(err, "posts", (n) => {
+        if (currentTextChannel && currentTextChannel.id === ch.id) selectForumChannel(ch, n);
+      }, attempt, () => {
+        if (currentTextChannel && currentTextChannel.id === ch.id) showAccessDenied("#" + ch.name);
+      })
+    );
+  }
+
+  function renderPosts() {
+    if (inDm() || !currentTextChannel || currentTextChannel.type !== "forum" || currentPost) return;
+    const list = $("#message-list");
+    list.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "welcome";
+    head.innerHTML = '<div class="welcome-icon">' + ICONS.forum + "</div><h2></h2><p>Start a post to kick off a discussion.</p>";
+    head.querySelector("h2").textContent = currentTextChannel.name;
+    list.appendChild(head);
+    if (!postsCache.length) {
+      const hint = document.createElement("div");
+      hint.className = "empty-hint small";
+      hint.style.padding = "0 16px";
+      hint.textContent = "No posts yet.";
+      list.appendChild(hint);
+      return;
+    }
+    postsCache.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "post-card";
+      const title = document.createElement("div");
+      title.className = "post-title";
+      title.textContent = p.title || "(untitled)";
+      const meta = document.createElement("div");
+      meta.className = "post-meta";
+      const prof = profileFor(p.uid, { displayName: p.displayName });
+      meta.appendChild(makeAvatar(prof, p.uid, "avatar-24", false));
+      const who = document.createElement("span");
+      who.textContent = prof.displayName || p.displayName || "Unknown";
+      const when = document.createElement("span");
+      when.textContent = formatTime(p.createdAt && p.createdAt.toDate ? p.createdAt.toDate() : new Date());
+      const count = document.createElement("span");
+      const n = p.messageCount || 0;
+      count.textContent = n + (n === 1 ? " message" : " messages");
+      meta.appendChild(who);
+      meta.appendChild(when);
+      meta.appendChild(count);
+      if (me && (p.uid === me.uid || hasPerm(currentServer, "manageMessages"))) {
+        const del = document.createElement("button");
+        del.className = "icon-btn danger del";
+        del.title = "Delete post";
+        del.innerHTML = ICONS.trash;
+        del.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (confirm('Delete the post "' + p.title + '"?')) await deleteDoc(doc(postsCol(currentTextChannel), p.id));
+        });
+        meta.appendChild(del);
+      }
+      card.appendChild(title);
+      card.appendChild(meta);
+      card.addEventListener("click", () => openPost(p));
+      list.appendChild(card);
+    });
+  }
+
+  function openPost(p, attempt = 0) {
+    currentPost = p;
+    messagesFirstRender = true;
+    lastMessages = [];
+    $("#post-back-btn").hidden = false;
+    $("#new-post-btn").hidden = true;
+    $("#channel-header-name").textContent = p.title;
+    $("#composer").hidden = false;
+    $("#message-input").placeholder = "Reply to this post";
+    if (unsubMessages) unsubMessages();
+    const ch = currentTextChannel;
+    unsubMessages = onSnapshot(
+      query(collection(postsCol(ch), p.id, "messages"), orderBy("createdAt"), limit(MESSAGE_LIMIT)),
+      (qs) => {
+        if (inDm() || !currentPost || currentPost.id !== p.id) return;
+        lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
+        renderMessages();
+      },
+      (err) => retryOnDenied(err, "post messages", (n) => {
+        if (currentPost && currentPost.id === p.id) openPost(p, n);
+      }, attempt, () => {
+        if (currentPost && currentPost.id === p.id) showAccessDenied("this post");
+      })
+    );
+  }
+
+  function closePost() {
+    currentPost = null;
+    if (unsubMessages) unsubMessages();
+    unsubMessages = null;
+    lastMessages = [];
+    $("#post-back-btn").hidden = true;
+    $("#new-post-btn").hidden = false;
+    $("#composer").hidden = true;
+    if (currentTextChannel) $("#channel-header-name").textContent = currentTextChannel.name;
+    renderPosts();
+  }
+  $("#post-back-btn").addEventListener("click", closePost);
+
+  function postWelcomeBlock(p) {
+    const w = document.createElement("div");
+    w.className = "welcome";
+    const prof = profileFor(p.uid, { displayName: p.displayName });
+    w.innerHTML = "<h2></h2><p>Posted by <b></b> in #<span></span>.</p>";
+    w.querySelector("h2").textContent = p.title;
+    w.querySelector("b").textContent = prof.displayName || p.displayName || "Unknown";
+    w.querySelector("span").textContent = currentTextChannel ? currentTextChannel.name : "";
+    return w;
+  }
+
+  function notePostActivity() {
+    if (inDm() || !currentPost || !currentTextChannel) return;
+    updateDoc(doc(postsCol(currentTextChannel), currentPost.id), {
+      lastActivity: serverTimestamp(),
+      messageCount: increment(1),
+    }).catch(() => {});
+  }
+
+  $("#new-post-btn").addEventListener("click", () => {
+    $("#new-post-title").value = "";
+    $("#new-post-body").value = "";
+    setMsg("#new-post-msg", "");
+    openModal("new-post-modal");
+    $("#new-post-title").focus();
+  });
+  $("#new-post-close").addEventListener("click", () => closeModal("new-post-modal"));
+  $("#new-post-create").addEventListener("click", async () => {
+    const title = $("#new-post-title").value.trim();
+    const body = $("#new-post-body").value.trim();
+    if (!title || !body) {
+      setMsg("#new-post-msg", "Give the post a title and a first message.", "error");
+      return;
+    }
+    if (!currentServer || !currentTextChannel || currentTextChannel.type !== "forum") return;
+    const ch = currentTextChannel;
+    const postRef = doc(postsCol(ch));
+    const batch = writeBatch(db);
+    batch.set(postRef, {
+      title,
+      uid: me.uid,
+      displayName: me.displayName,
+      createdAt: serverTimestamp(),
+      lastActivity: serverTimestamp(),
+      messageCount: 1,
+    });
+    batch.set(doc(collection(postRef, "messages")), {
+      text: body,
+      uid: me.uid,
+      displayName: me.displayName,
+      avatarEmoji: me.avatarEmoji,
+      mentions: renderRichText(document.createElement("div"), body).uids,
+      createdAt: serverTimestamp(),
+    });
+    try {
+      await batch.commit();
+      closeModal("new-post-modal");
+      openPost({ id: postRef.id, title, uid: me.uid, displayName: me.displayName });
+    } catch (e) {
+      setMsg("#new-post-msg", "Couldn't post: " + e.message, "error");
+    }
+  });
 
   function welcomeBlock(name) {
     const w = document.createElement("div");
@@ -1468,7 +1987,9 @@ const TEMPLATE = `
       list.appendChild(
         inDm()
           ? dmWelcomeBlock(profileFor(dmOther(currentDm), { displayName: "Unknown" }).displayName || "Unknown")
-          : welcomeBlock(currentTextChannel.name)
+          : currentPost
+            ? postWelcomeBlock(currentPost)
+            : welcomeBlock(currentTextChannel.name)
       );
     }
 
@@ -1500,6 +2021,10 @@ const TEMPLATE = `
         const author = document.createElement("span");
         author.className = "msg-author";
         author.textContent = prof.displayName || m.displayName || "Unknown";
+        if (!inDm()) {
+          const role = topRole(currentServer, m.uid);
+          if (role && role.color) author.style.color = role.color;
+        }
         if (me && m.uid !== me.uid) {
           author.classList.add("clickable");
           author.title = "Message " + (prof.displayName || "");
@@ -1544,7 +2069,7 @@ const TEMPLATE = `
       }
       row.appendChild(body);
 
-      if (me && (me.uid === m.uid || (!inDm() && canManage(currentServer)))) {
+      if (me && (me.uid === m.uid || (!inDm() && hasPerm(currentServer, "manageMessages")))) {
         const actions = document.createElement("div");
         actions.className = "msg-actions";
         const del = document.createElement("button");
@@ -1637,7 +2162,7 @@ const TEMPLATE = `
       )
       .slice(0, 8)
       .map((u) => ({ uid: u.uid, name: u.displayName, profile: u }));
-    if (!inDm() && "everyone".startsWith(q) && canManage(currentServer)) items.unshift({ uid: "everyone", name: "everyone" });
+    if (!inDm() && "everyone".startsWith(q) && hasPerm(currentServer, "mentionEveryone")) items.unshift({ uid: "everyone", name: "everyone" });
     return items;
   }
 
@@ -1763,6 +2288,7 @@ const TEMPLATE = `
     try {
       await addDoc(messagesCol(), payload);
       noteDmActivity(text || "Sent an image");
+      notePostActivity();
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -1967,6 +2493,7 @@ const TEMPLATE = `
         createdAt: serverTimestamp(),
       });
       noteDmActivity("Sent a GIF");
+      notePostActivity();
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -2113,6 +2640,8 @@ const TEMPLATE = `
     closeAllModals();
     if (unsubMessages) unsubMessages();
     unsubMessages = null;
+    $("#post-back-btn").hidden = true;
+    $("#new-post-btn").hidden = true;
     $("#app-screen").classList.add("dm-mode");
     $("#app-screen").classList.remove("sidebar-open");
     renderRail();
@@ -2165,6 +2694,8 @@ const TEMPLATE = `
     unsubDmMessages = null;
     $("#app-screen").classList.add("dm-mode");
     $("#app-screen").classList.remove("sidebar-open");
+    $("#post-back-btn").hidden = true;
+    $("#new-post-btn").hidden = true;
     renderRail();
     renderDmList();
     $("#channel-header-icon").innerHTML = ICONS.chat;
@@ -2480,7 +3011,8 @@ const TEMPLATE = `
       row.className = "admin-row";
       const label = document.createElement("span");
       label.className = "admin-label";
-      label.innerHTML = '<span class="ch-icon">' + (c.type === "text" ? ICONS.hash : ICONS.speaker) + "</span><span></span>";
+      const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : ICONS.speaker;
+      label.innerHTML = '<span class="ch-icon">' + icon + "</span><span></span>";
       label.querySelector("span:last-child").textContent = c.name;
       const actions = document.createElement("span");
       const renameBtn = document.createElement("button");

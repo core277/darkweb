@@ -95,8 +95,12 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
 - **Home server**: the lightning-bolt button at the top of the rail is a server *everyone* is in
   automatically and can't leave. It's created the first time a site admin logs in (document id
   `HOME`), comes with `#general` and `voice`, and only site admins can manage it.
-- **Server owners** manage their own server: Server name ▾ → **Server Settings** (rename, channels,
-  kick members, delete server).
+- **Server owners** manage their own server: Server name ▾ → **Server Settings** — upload a server
+  icon, rename, manage channels (text, voice, or **forum**), create **roles** with colours and
+  permissions (manage channels, delete anyone's messages, mention @everyone) and hand them out on
+  the Members tab, kick members, delete the server. Role permissions are stored on the server
+  document as `memberPerms` so the Firestore rules can enforce them.
+- **Forum channels** hold posts: each post is a thread with a title and its own replies.
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
   the **Site Admin** panel (all servers, all users, promote/ban/delete). Deleting an account wipes
