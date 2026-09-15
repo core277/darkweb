@@ -6,6 +6,7 @@ import {
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
   onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch, increment,
+  runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const DEFAULT_EMOJI = "🙂";
@@ -950,7 +951,6 @@ const TEMPLATE = `
         subscribeDms();
       }
       if (firstLoad || me.role !== lastRole) subscribeServers();
-      if (!firstLoad && isGlobalAdmin() && !homeServer) createHome();
       lastRole = me.role;
       if (!firstLoad) {
         renderServerHeader();
@@ -1116,7 +1116,8 @@ const TEMPLATE = `
           ensureHomeMembership();
         } else {
           homeServer = null;
-          if (isGlobalAdmin()) createHome();
+          // Only trust a confirmed-from-server "missing"; a cached miss must never trigger creation.
+          if (isGlobalAdmin() && !snap.metadata.fromCache) createHome();
         }
         renderRail();
         renderAdminServerList();
@@ -1156,11 +1157,30 @@ const TEMPLATE = `
     updateDoc(doc(db, "servers", HOME_ID), { memberIds: arrayUnion(me.uid) }).catch(() => {});
   }
 
+  // Creates HOME atomically and only if it truly doesn't exist, so it can never overwrite a live
+  // home server (which would wipe roles, icon, categories and members).
   async function createHome() {
     if (creatingHome || homeServer) return;
     creatingHome = true;
     try {
-      await createServerWithDefaults(HOME_ID, "Dark Web", { isHome: true });
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, "servers", HOME_ID);
+        const snap = await tx.get(ref);
+        if (snap.exists()) return;
+        tx.set(ref, {
+          name: "Dark Web",
+          ownerUid: me.uid,
+          memberIds: [me.uid],
+          isHome: true,
+          categories: [
+            { id: "text", name: "Text Channels" },
+            { id: "voice", name: "Voice Channels" },
+          ],
+          createdAt: serverTimestamp(),
+        });
+        tx.set(doc(db, "servers", HOME_ID, "channels", "general"), { name: "general", type: "text", categoryId: "text", createdAt: serverTimestamp() });
+        tx.set(doc(db, "servers", HOME_ID, "channels", "voice"), { name: "voice", type: "voice", categoryId: "voice", createdAt: serverTimestamp() });
+      });
     } catch (e) {
       console.error("Dark Web: couldn't create home server", e);
     } finally {
@@ -1738,7 +1758,12 @@ const TEMPLATE = `
     const groups = cats.map((c) => ({ id: c.id, name: c.name, channels: [] }));
     const legacy = {};
     channelsCache.forEach((ch) => {
-      const g = ch.categoryId && known.has(ch.categoryId) ? groups.find((x) => x.id === ch.categoryId) : null;
+      let g = ch.categoryId && known.has(ch.categoryId) ? groups.find((x) => x.id === ch.categoryId) : null;
+      // Uncategorised channels join a real category with the matching default name if one exists.
+      if (!g) {
+        const fallbackName = (LEGACY_CATS[ch.type] || "").toLowerCase();
+        g = groups.find((x) => (x.name || "").toLowerCase() === fallbackName) || null;
+      }
       if (g) g.channels.push(ch);
       else {
         const key = "_" + ch.type;
