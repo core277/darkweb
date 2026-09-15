@@ -20,6 +20,7 @@ const GROUP_WINDOW_MS = 7 * 60 * 1000;
 const MESSAGE_LIMIT = 100;
 const MAX_IMAGE_BYTES = 700000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const HOME_ID = "HOME";
 
 const ICONS = {
   // CSS-mask based so it works inside the Shadow DOM (SVG url(#gradient) refs don't resolve there).
@@ -338,6 +339,8 @@ const TEMPLATE = `
   let lastRole = null;
   let usersCache = new Map();
   let servers = [];
+  let homeServer = null;
+  let creatingHome = false;
   let currentServer = null;
   let pendingSelectServer = null;
   let channelsCache = [];
@@ -355,6 +358,7 @@ const TEMPLATE = `
   const voiceListeners = new Map();
   const remoteAudioEls = new Map();
   let unsubServers = null;
+  let unsubHome = null;
   let unsubMessages = null;
   let unsubChannels = null;
   let unsubUsers = null;
@@ -410,7 +414,9 @@ const TEMPLATE = `
   const profileFor = (uid, fallback) => usersCache.get(uid) || fallback || {};
   const isGlobalAdmin = () => me && me.role === "admin";
   const canManage = (s) => !!(me && s && (isGlobalAdmin() || s.ownerUid === me.uid));
-  const isMemberOf = (s) => !!(me && s && (s.memberIds || []).includes(me.uid));
+  const isMemberOf = (s) => !!(me && s && (s.isHome || (s.memberIds || []).includes(me.uid)));
+  const allServers = () => (homeServer ? [homeServer] : []).concat(servers.filter((s) => s.id !== HOME_ID));
+  const allUsers = () => Array.from(usersCache.entries()).map(([uid, u]) => ({ uid, ...u }));
 
   function isOnline(u) {
     const t = u && u.lastActive && u.lastActive.toDate ? u.lastActive.toDate().getTime() : 0;
@@ -517,9 +523,11 @@ const TEMPLATE = `
   function stopSessionListeners() {
     teardownServerListeners();
     if (unsubServers) unsubServers();
+    if (unsubHome) unsubHome();
     if (unsubUsers) unsubUsers();
     if (unsubMe) unsubMe();
-    unsubServers = unsubUsers = unsubMe = null;
+    unsubServers = unsubHome = unsubUsers = unsubMe = null;
+    homeServer = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (membersRefreshTimer) clearInterval(membersRefreshTimer);
     heartbeatTimer = membersRefreshTimer = null;
@@ -682,8 +690,10 @@ const TEMPLATE = `
         syncLayoutForWidth();
         startHeartbeat(userRef);
         subscribeUsers();
+        subscribeHome();
       }
       if (firstLoad || me.role !== lastRole) subscribeServers();
+      if (!firstLoad && isGlobalAdmin() && !homeServer) createHome();
       lastRole = me.role;
       if (!firstLoad) {
         renderServerHeader();
@@ -731,9 +741,10 @@ const TEMPLATE = `
     const list = $("#member-list");
     list.innerHTML = "";
     if (!currentServer) return;
-    const members = (currentServer.memberIds || [])
-      .map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }))
-      .filter((u) => u.displayName && !u.banned);
+    const source = currentServer.isHome
+      ? allUsers()
+      : (currentServer.memberIds || []).map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }));
+    const members = source.filter((u) => u.displayName && !u.banned);
     const rank = (u) => (u.uid === currentServer.ownerUid ? 0 : u.role === "admin" ? 1 : 2);
     const sortFn = (a, b) => rank(a) - rank(b) || (a.displayName || "").localeCompare(b.displayName || "");
     const online = members.filter(isOnline).sort(sortFn);
@@ -805,24 +816,69 @@ const TEMPLATE = `
         servers.sort((a, b) => ts(a.createdAt) - ts(b.createdAt) || (a.name || "").localeCompare(b.name || ""));
         renderRail();
         renderAdminServerList();
-        let target = null;
-        if (pendingSelectServer) {
-          target = servers.find((s) => s.id === pendingSelectServer);
-          if (target) pendingSelectServer = null;
-        }
-        if (!target && currentServer) target = servers.find((s) => s.id === currentServer.id);
-        if (!target) {
-          const last = safeGet("darkweb:lastServer");
-          target = servers.find((s) => s.id === last) || servers[0] || null;
-        }
-        if (target) selectServer(target);
-        else showNoServer();
+        resolveSelection();
       },
       (err) => {
         console.error("Dark Web: servers listener", err);
         showLoadError(err);
       }
     );
+  }
+
+  // The home server (document id "HOME") is one everybody is in automatically and can't leave.
+  function subscribeHome() {
+    if (unsubHome) unsubHome();
+    unsubHome = onSnapshot(
+      doc(db, "servers", HOME_ID),
+      (snap) => {
+        if (snap.exists()) {
+          homeServer = { id: HOME_ID, ...snap.data(), isHome: true };
+        } else {
+          homeServer = null;
+          if (isGlobalAdmin()) createHome();
+        }
+        renderRail();
+        renderAdminServerList();
+        resolveSelection();
+      },
+      (err) => console.error("Dark Web: home listener", err)
+    );
+  }
+
+  async function createHome() {
+    if (creatingHome || homeServer) return;
+    creatingHome = true;
+    try {
+      await setDoc(doc(db, "servers", HOME_ID), {
+        name: "Dark Web",
+        ownerUid: me.uid,
+        memberIds: [me.uid],
+        isHome: true,
+        createdAt: serverTimestamp(),
+      });
+      await addDoc(collection(db, "servers", HOME_ID, "channels"), { name: "general", type: "text", createdAt: serverTimestamp() });
+      await addDoc(collection(db, "servers", HOME_ID, "channels"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+    } catch (e) {
+      console.error("Dark Web: couldn't create home server", e);
+    } finally {
+      creatingHome = false;
+    }
+  }
+
+  function resolveSelection() {
+    const list = allServers();
+    let target = null;
+    if (pendingSelectServer) {
+      target = list.find((s) => s.id === pendingSelectServer);
+      if (target) pendingSelectServer = null;
+    }
+    if (!target && currentServer) target = list.find((s) => s.id === currentServer.id);
+    if (!target) {
+      const last = safeGet("darkweb:lastServer");
+      target = list.find((s) => s.id === last) || list[0] || null;
+    }
+    if (target) selectServer(target);
+    else showNoServer();
   }
 
   function showLoadError(err) {
@@ -836,10 +892,18 @@ const TEMPLATE = `
       "</div>";
   }
 
+  $(".rail-home").addEventListener("click", () => {
+    if (homeServer) selectServer(homeServer);
+  });
+
   function renderRail() {
+    const home = $(".rail-home");
+    home.classList.toggle("active", !!(currentServer && currentServer.isHome));
+    home.classList.toggle("disabled", !homeServer);
+    home.title = homeServer ? homeServer.name + " (everyone)" : "Home server not set up yet";
     const list = $("#server-list");
     list.innerHTML = "";
-    servers.forEach((s) => {
+    servers.filter((s) => s.id !== HOME_ID).forEach((s) => {
       const el = document.createElement("div");
       el.className =
         "rail-icon" +
@@ -901,8 +965,9 @@ const TEMPLATE = `
     const s = currentServer;
     $("#server-name").textContent = s ? s.name : "Dark Web";
     $("#server-header").disabled = !s;
+    $("#menu-invite").hidden = !!(s && s.isHome);
     $("#menu-settings").hidden = !canManage(s);
-    $("#menu-leave").hidden = !(s && isMemberOf(s) && s.ownerUid !== (me && me.uid));
+    $("#menu-leave").hidden = !(s && !s.isHome && isMemberOf(s) && s.ownerUid !== (me && me.uid));
     $$(".category-add").forEach((b) => (b.hidden = !canManage(s)));
   }
 
@@ -1022,7 +1087,8 @@ const TEMPLATE = `
     if (!currentServer) return;
     $("#server-settings-title").textContent = currentServer.name + " — Settings";
     $("#server-rename-input").value = currentServer.name;
-    $("#settings-invite-code").textContent = currentServer.id;
+    $("#settings-invite-code").textContent = currentServer.isHome ? "Everyone joins automatically" : currentServer.id;
+    $("#server-delete-btn").hidden = !!currentServer.isHome;
     setMsg("#server-settings-msg", "");
     renderAdminChannelList();
     renderServerMemberList();
@@ -1056,7 +1122,8 @@ const TEMPLATE = `
     const list = $("#server-member-list");
     if (!list || !currentServer) return;
     list.innerHTML = "";
-    (currentServer.memberIds || []).forEach((uid) => {
+    const ids = currentServer.isHome ? allUsers().map((u) => u.uid) : currentServer.memberIds || [];
+    ids.forEach((uid) => {
       const u = usersCache.get(uid);
       if (!u) return;
       const row = document.createElement("div");
@@ -1069,7 +1136,7 @@ const TEMPLATE = `
       label.appendChild(name);
       if (uid === currentServer.ownerUid) label.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
       const actions = document.createElement("span");
-      if (uid !== currentServer.ownerUid && uid !== me.uid) {
+      if (!currentServer.isHome && uid !== currentServer.ownerUid && uid !== me.uid) {
         const kick = document.createElement("button");
         kick.className = "btn btn-danger btn-sm";
         kick.textContent = "Kick";
@@ -1634,11 +1701,12 @@ const TEMPLATE = `
     const list = $("#admin-server-list");
     if (!list || !isGlobalAdmin()) return;
     list.innerHTML = "";
-    if (!servers.length) {
+    const all = allServers();
+    if (!all.length) {
       list.innerHTML = '<div class="empty-hint small">No servers exist yet.</div>';
       return;
     }
-    servers.forEach((s) => {
+    all.forEach((s) => {
       const row = document.createElement("div");
       row.className = "admin-row";
       const label = document.createElement("span");
@@ -1652,9 +1720,12 @@ const TEMPLATE = `
       const owner = usersCache.get(s.ownerUid);
       text.innerHTML = "<b></b><br><small></small>";
       text.querySelector("b").textContent = s.name;
+      const count = s.isHome ? allUsers().length : (s.memberIds || []).length;
       text.querySelector("small").textContent =
-        (s.memberIds || []).length + " member" + ((s.memberIds || []).length === 1 ? "" : "s") +
-        " · owner: " + (owner ? owner.displayName : "unknown") + " · code " + s.id;
+        (s.isHome ? "Home server · everyone · " : "") +
+        count + " member" + (count === 1 ? "" : "s") +
+        " · owner: " + (owner ? owner.displayName : "unknown") +
+        (s.isHome ? "" : " · code " + s.id);
       label.appendChild(text);
       const actions = document.createElement("span");
       const open = document.createElement("button");
@@ -1664,17 +1735,19 @@ const TEMPLATE = `
         closeModal("admin-modal");
         selectServer(s);
       });
-      const del = document.createElement("button");
-      del.className = "btn btn-danger btn-sm";
-      del.textContent = "Delete";
-      del.addEventListener("click", async () => {
-        if (confirm('Delete "' + s.name + '" for everyone?')) {
-          if (currentVoiceServer === s.id) await leaveVoice();
-          await deleteDoc(doc(db, "servers", s.id));
-        }
-      });
       actions.appendChild(open);
-      actions.appendChild(del);
+      if (!s.isHome) {
+        const del = document.createElement("button");
+        del.className = "btn btn-danger btn-sm";
+        del.textContent = "Delete";
+        del.addEventListener("click", async () => {
+          if (confirm('Delete "' + s.name + '" for everyone?')) {
+            if (currentVoiceServer === s.id) await leaveVoice();
+            await deleteDoc(doc(db, "servers", s.id));
+          }
+        });
+        actions.appendChild(del);
+      }
       row.appendChild(label);
       row.appendChild(actions);
       list.appendChild(row);

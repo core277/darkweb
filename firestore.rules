@@ -23,9 +23,13 @@ service cloud.firestore {
     function isOwner(sid) {
       return isSignedIn() && serverData(sid).ownerUid == request.auth.uid;
     }
+    // "HOME" is the server everyone is in automatically and can't leave.
+    function isHome(sid) {
+      return sid == 'HOME';
+    }
     // Site admins can see and manage every server; owners manage their own.
     function canAccess(sid) {
-      return isAdmin() || isMember(sid);
+      return isAdmin() || isHome(sid) || isMember(sid);
     }
     function canManage(sid) {
       return isAdmin() || isOwner(sid);
@@ -68,6 +72,7 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.memberIds);
       allow create: if isNotBanned()
+                    && (!isHome(serverId) || isAdmin())
                     && request.resource.data.ownerUid == request.auth.uid
                     && request.resource.data.memberIds == [request.auth.uid]
                     && request.resource.data.name is string
@@ -76,8 +81,8 @@ service cloud.firestore {
       allow update: if isAdmin()
                     || (resource.data.ownerUid == request.auth.uid
                         && request.resource.data.ownerUid == resource.data.ownerUid)
-                    || (isNotBanned() && onlyMembersChanged() && (addsSelf() || removesSelf()));
-      allow delete: if isAdmin() || resource.data.ownerUid == request.auth.uid;
+                    || (isNotBanned() && !isHome(serverId) && onlyMembersChanged() && (addsSelf() || removesSelf()));
+      allow delete: if isAdmin() || (resource.data.ownerUid == request.auth.uid && !isHome(serverId));
 
       match /channels/{channelId} {
         allow read: if canAccess(serverId);
