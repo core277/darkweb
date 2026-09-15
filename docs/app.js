@@ -1161,9 +1161,18 @@ const TEMPLATE = `
 
   // A listen can race the write that grants access (server creation, joining); on a
   // permission error retry a few times before giving up.
-  function retryOnDenied(err, label, retry, attempt) {
+  function retryOnDenied(err, label, retry, attempt, onGiveUp) {
     console.error("Dark Web: " + label + " listener", err);
     if (err && err.code === "permission-denied" && attempt < 3) setTimeout(() => retry(attempt + 1), 1200);
+    else if (onGiveUp) onGiveUp(err);
+  }
+
+  function showAccessDenied(what) {
+    $("#composer").hidden = true;
+    $("#message-list").innerHTML =
+      '<div class="empty-hint"><div class="empty-title">Can\'t load ' + what + "</div>" +
+      "Firestore denied access. If you're the site admin, publish the latest <strong>firestore.rules</strong> " +
+      "from the repo (Firestore → Rules → Publish), then relaunch.</div>";
   }
 
   function subscribeChannels(attempt = 0) {
@@ -1194,7 +1203,9 @@ const TEMPLATE = `
       },
       (err) => retryOnDenied(err, "channels", (n) => {
         if (currentServer && currentServer.id === sid) subscribeChannels(n);
-      }, attempt)
+      }, attempt, () => {
+        if (currentServer && currentServer.id === sid) showAccessDenied("this server's channels");
+      })
     );
   }
 
@@ -1316,7 +1327,9 @@ const TEMPLATE = `
       },
       (err) => retryOnDenied(err, "messages", (n) => {
         if (currentServer && currentServer.id === sid && currentTextChannel && currentTextChannel.id === ch.id) selectTextChannel(ch, n);
-      }, attempt)
+      }, attempt, () => {
+        if (currentServer && currentServer.id === sid && currentTextChannel && currentTextChannel.id === ch.id) showAccessDenied("#" + ch.name);
+      })
     );
   }
 
