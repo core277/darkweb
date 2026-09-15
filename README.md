@@ -111,7 +111,9 @@ The **GIF** button in the message bar searches [Tenor](https://tenor.com). It ne
 3. **APIs & Services → Credentials → Create credentials → API key** → copy it.
 4. Paste it into `tenorApiKey` in [`docs/firebase-config.js`](docs/firebase-config.js), commit, push.
 
-Until then the GIF tab just explains that it's not set up. Emoji work with no setup — the smiley
+Prefer GIPHY? Get a free key at [developers.giphy.com](https://developers.giphy.com) (**Create an
+App → API**) and put it in `giphyApiKey` instead — the app uses Tenor if that key is set, otherwise
+GIPHY. Until one is set the GIF tab just explains that it's not set up. Emoji work with no setup — the smiley
 button opens a picker with recently-used, and emoji-only messages render large.
 
 ## Local testing (no iPad needed)

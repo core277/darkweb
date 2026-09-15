@@ -14,3 +14,7 @@ export const firebaseConfig = {
 // Optional: enables GIF search in chat. Free key from Google Cloud Console
 // (enable the "Tenor API", then Credentials -> Create API key). Leave empty to disable.
 export const tenorApiKey = "";
+
+// Alternative GIF provider (used if tenorApiKey is empty). Free key from developers.giphy.com
+// (Create an App -> API). Leave empty to disable.
+export const giphyApiKey = "";

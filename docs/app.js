@@ -348,6 +348,7 @@ const TEMPLATE = `
   ]);
   const firebaseConfig = configModule.firebaseConfig;
   const tenorApiKey = (configModule.tenorApiKey || "").trim();
+  const giphyApiKey = (configModule.giphyApiKey || "").trim();
   const styleEl = document.createElement("style");
   styleEl.textContent = css;
   shadow.appendChild(styleEl);
@@ -1785,55 +1786,86 @@ const TEMPLATE = `
     if (!path.includes(picker) && !path.includes($("#emoji-btn")) && !path.includes($("#gif-btn"))) closePicker();
   });
 
+  // Returns [{preview, full, alt}] from whichever GIF provider has a key configured.
+  async function fetchGifs(q) {
+    if (tenorApiKey) {
+      const params = new URLSearchParams({
+        key: tenorApiKey,
+        client_key: "darkweb",
+        limit: "30",
+        media_filter: "tinygif,mediumgif,gif",
+        contentfilter: "medium",
+      });
+      let url = "https://tenor.googleapis.com/v2/featured?" + params;
+      if (q) {
+        params.set("q", q);
+        url = "https://tenor.googleapis.com/v2/search?" + params;
+      }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Tenor returned " + res.status);
+      const data = await res.json();
+      return (data.results || [])
+        .map((r) => {
+          const f = r.media_formats || {};
+          return {
+            preview: (f.tinygif || f.mediumgif || f.gif || {}).url,
+            full: (f.mediumgif || f.gif || f.tinygif || {}).url,
+            alt: r.content_description || "GIF",
+          };
+        })
+        .filter((g) => g.preview && g.full);
+    }
+    const params = new URLSearchParams({ api_key: giphyApiKey, limit: "30", rating: "pg-13" });
+    let url = "https://api.giphy.com/v1/gifs/trending?" + params;
+    if (q) {
+      params.set("q", q);
+      url = "https://api.giphy.com/v1/gifs/search?" + params;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("GIPHY returned " + res.status);
+    const data = await res.json();
+    return (data.data || [])
+      .map((r) => {
+        const im = r.images || {};
+        return {
+          preview: (im.fixed_width_small || im.fixed_width || {}).url,
+          full: (im.fixed_width || im.downsized || im.original || {}).url,
+          alt: r.title || "GIF",
+        };
+      })
+      .filter((g) => g.preview && g.full);
+  }
+
   async function loadGifs(q) {
     const box = $("#picker-gif");
-    if (!tenorApiKey) {
+    if (!tenorApiKey && !giphyApiKey) {
       box.innerHTML =
-        '<div class="picker-note">GIF search needs a free <strong>Tenor API key</strong>. ' +
+        '<div class="picker-note">GIF search needs a free <strong>Tenor</strong> or <strong>GIPHY</strong> API key. ' +
         "Whoever runs this Dark Web instance adds it to <code>firebase-config.js</code> (see the README).</div>";
       return;
     }
     const id = ++gifRequestId;
     box.innerHTML = '<div class="picker-note">Loading…</div>';
-    const params = new URLSearchParams({
-      key: tenorApiKey,
-      client_key: "darkweb",
-      limit: "30",
-      media_filter: "tinygif,mediumgif,gif",
-      contentfilter: "medium",
-    });
-    let url = "https://tenor.googleapis.com/v2/featured?" + params;
-    if (q) {
-      params.set("q", q);
-      url = "https://tenor.googleapis.com/v2/search?" + params;
-    }
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Tenor returned " + res.status);
-      const data = await res.json();
+      const results = await fetchGifs(q);
       if (id !== gifRequestId) return;
       box.innerHTML = "";
-      const results = data.results || [];
       if (!results.length) {
         box.innerHTML = '<div class="picker-note">No GIFs found.</div>';
         return;
       }
       const grid = document.createElement("div");
       grid.className = "gif-grid";
-      results.forEach((r) => {
-        const f = r.media_formats || {};
-        const preview = (f.tinygif || f.mediumgif || f.gif || {}).url;
-        const full = (f.mediumgif || f.gif || f.tinygif || {}).url;
-        if (!preview || !full) return;
+      results.forEach((g) => {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "gif-item";
         const img = document.createElement("img");
-        img.src = preview;
-        img.alt = r.content_description || "GIF";
+        img.src = g.preview;
+        img.alt = g.alt;
         img.loading = "lazy";
         b.appendChild(img);
-        b.addEventListener("click", () => sendGif(full));
+        b.addEventListener("click", () => sendGif(g.full));
         grid.appendChild(b);
       });
       box.appendChild(grid);
