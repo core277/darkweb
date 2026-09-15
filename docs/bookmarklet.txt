@@ -1,0 +1,6 @@
+Raw bookmarklet source (for reference — the install page at the site root generates this
+automatically with the correct URL filled in, so prefer that over typing this by hand).
+
+Replace YOUR_GH_USERNAME and YOUR_REPO_NAME with your actual GitHub Pages username/repo:
+
+javascript:(function(){if(window.__DARKWEB_LOADED__){window.__DARKWEB_TOGGLE__&&window.__DARKWEB_TOGGLE__();return;}var s=document.createElement('script');s.type='module';s.src='https://YOUR_GH_USERNAME.github.io/YOUR_REPO_NAME/app.js?t='+Date.now();document.body.appendChild(s);})();

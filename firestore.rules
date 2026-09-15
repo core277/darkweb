@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function myData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isAdmin() {
+      return isSignedIn() && myData().role == 'admin';
+    }
+    function isNotBanned() {
+      return isSignedIn() && myData().banned == false;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'member'
+                    && request.resource.data.banned == false;
+      allow update: if isSignedIn() && (
+                      isAdmin() ||
+                      (request.auth.uid == userId
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.banned == resource.data.banned)
+                    );
+      allow delete: if isAdmin();
+    }
+
+    match /channels/{channelId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isNotBanned() && request.resource.data.uid == request.auth.uid;
+        allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+        allow update: if false;
+      }
+    }
+
+    match /voiceChannels/{channelId}/participants/{userId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isSignedIn() && request.auth.uid == userId && isNotBanned();
+      allow update: if false;
+    }
+
+    match /voiceChannels/{channelId}/signals/{signalId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.to == request.auth.uid;
+      allow update: if false;
+    }
+  }
+}
