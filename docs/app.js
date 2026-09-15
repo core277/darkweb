@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
-  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
+  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
@@ -47,6 +47,15 @@ const ICONS = {
   back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
 };
 
+// Accounts created without an email get an internal one derived from the username so Firebase
+// Auth can still identify them. Nobody ever sees or mails it.
+const NOEMAIL_DOMAIN = "users.darkweb.local";
+const usernameToEmail = (name) => {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return slug.length >= 3 ? slug + "@" + NOEMAIL_DOMAIN : null;
+};
+const isSyntheticEmail = (email) => !!email && email.endsWith("@" + NOEMAIL_DOMAIN);
+
 const PERMS = [
   ["manageChannels", "Manage channels"],
   ["manageMessages", "Delete anyone's messages"],
@@ -76,11 +85,12 @@ const TEMPLATE = `
       <h1 id="auth-title">Welcome back!</h1>
       <p id="auth-subtitle" class="auth-sub">We're so excited to see you again!</p>
       <div id="signup-fields" hidden>
-        <label class="field-label">Display name</label>
+        <label class="field-label">Username</label>
         <input id="signup-name" maxlength="24" autocomplete="nickname" />
       </div>
-      <label class="field-label">Email</label>
-      <input id="auth-email" type="email" autocomplete="email" />
+      <label class="field-label" id="auth-email-label">Email</label>
+      <input id="auth-email" type="text" autocomplete="username" />
+      <div id="auth-email-hint" class="hint" hidden>Optional, but recommended: it's the only way to reset a forgotten password.</div>
       <label class="field-label">Password</label>
       <input id="auth-password" type="password" autocomplete="current-password" />
       <div class="link-row" id="forgot-password-row"><a href="#" id="forgot-password-link">Forgot your password?</a></div>
@@ -244,6 +254,15 @@ const TEMPLATE = `
           <h2>Account</h2>
           <label class="field-label">Email</label>
           <input id="account-email" readonly />
+          <div id="account-email-hint" class="hint"></div>
+          <h3 id="email-change-title">Add an email</h3>
+          <div class="hint">Lets you reset your password if you forget it. You'll get a confirmation link.</div>
+          <label class="field-label">New email</label>
+          <input id="email-new" type="email" autocomplete="email" />
+          <label class="field-label">Current password</label>
+          <input id="email-pw" type="password" autocomplete="current-password" />
+          <div class="row-end"><button id="email-save-btn" class="btn btn-primary">Send confirmation</button></div>
+          <div id="email-msg" class="form-msg"></div>
           <h3>Change password</h3>
           <label class="field-label">Current password</label>
           <input id="pw-current" type="password" autocomplete="current-password" />
@@ -728,6 +747,9 @@ const TEMPLATE = `
     const signup = mode === "signup";
     $("#signup-fields").hidden = !signup;
     $("#forgot-password-row").hidden = signup;
+    $("#auth-email-label").textContent = signup ? "Email (optional)" : "Username or email";
+    $("#auth-email-hint").hidden = !signup;
+    $("#auth-email").placeholder = signup ? "you@example.com" : "";
     $("#auth-title").textContent = signup ? "Create an account" : "Welcome back!";
     $("#auth-subtitle").textContent = signup ? "Pick a name and you're in." : "We're so excited to see you again!";
     $("#auth-submit-btn").textContent = signup ? "Continue" : "Log In";
@@ -745,27 +767,56 @@ const TEMPLATE = `
   });
 
   async function handleAuthSubmit() {
-    const email = $("#auth-email").value.trim();
+    const identifier = $("#auth-email").value.trim();
     const password = $("#auth-password").value;
     setMsg("#login-error", "");
-    if (!email || !password) {
-      setMsg("#login-error", "Enter an email and password.", "error");
-      return;
-    }
+    let email = identifier;
     if (authMode === "signup") {
       const name = $("#signup-name").value.trim();
       if (!name) {
-        setMsg("#login-error", "Enter a display name.", "error");
+        setMsg("#login-error", "Pick a username.", "error");
+        return;
+      }
+      if (!email) {
+        email = usernameToEmail(name);
+        if (!email) {
+          setMsg("#login-error", "Username needs at least 3 letters or numbers.", "error");
+          return;
+        }
+      } else if (!email.includes("@")) {
+        setMsg("#login-error", "That email doesn't look right (or leave it blank).", "error");
         return;
       }
       window.__darkwebPendingName = name;
+    } else {
+      if (!identifier) {
+        setMsg("#login-error", "Enter your username or email.", "error");
+        return;
+      }
+      if (!identifier.includes("@")) {
+        email = usernameToEmail(identifier);
+        if (!email) {
+          setMsg("#login-error", "Enter your username or email.", "error");
+          return;
+        }
+      }
+    }
+    if (!password) {
+      setMsg("#login-error", "Enter a password.", "error");
+      return;
     }
     $("#auth-submit-btn").disabled = true;
     try {
       if (authMode === "signup") await createUserWithEmailAndPassword(auth, email, password);
       else await signInWithEmailAndPassword(auth, email, password);
     } catch (e) {
-      setMsg("#login-error", friendlyAuthError(e), "error");
+      if (e.code === "auth/email-already-in-use" && isSyntheticEmail(email)) {
+        setMsg("#login-error", "That username is taken. Pick another one, or add an email to make it unique.", "error");
+      } else if ((e.code === "auth/invalid-credential" || e.code === "auth/user-not-found") && isSyntheticEmail(email)) {
+        setMsg("#login-error", "No account with that username, or wrong password. If you signed up with an email, log in with it.", "error");
+      } else {
+        setMsg("#login-error", friendlyAuthError(e), "error");
+      }
     } finally {
       $("#auth-submit-btn").disabled = false;
     }
@@ -776,6 +827,10 @@ const TEMPLATE = `
     const email = $("#auth-email").value.trim();
     if (!email) {
       setMsg("#login-error", "Enter your email above first, then click this again.", "error");
+      return;
+    }
+    if (!email.includes("@")) {
+      setMsg("#login-error", "Password reset needs an email. Accounts created with just a username can't be reset.", "error");
       return;
     }
     try {
@@ -796,6 +851,8 @@ const TEMPLATE = `
       channelsCache = [];
       currentTextChannel = null;
       usersCache = new Map();
+      ["#auth-email", "#auth-password", "#signup-name"].forEach((sel) => ($(sel).value = ""));
+      setAuthMode("login");
       showScreen("login-screen");
       return;
     }
@@ -2915,10 +2972,16 @@ const TEMPLATE = `
     avatarGrid.querySelectorAll(".avatar-choice").forEach((b) => b.classList.toggle("selected", b.textContent === selectedAvatarEmoji));
     $("#profile-name").value = me.displayName;
     $("#profile-status").value = me.status;
-    $("#account-email").value = me.email || "";
-    ["#pw-current", "#pw-new", "#pw-confirm"].forEach((s) => ($(s).value = ""));
+    const hasEmail = me.email && !isSyntheticEmail(me.email);
+    $("#account-email").value = hasEmail ? me.email : "No email on this account";
+    $("#account-email-hint").textContent = hasEmail
+      ? "Used to log in and to reset your password."
+      : "You log in with your username. Without an email, a forgotten password can't be reset.";
+    $("#email-change-title").textContent = hasEmail ? "Change email" : "Add an email";
+    ["#pw-current", "#pw-new", "#pw-confirm", "#email-new", "#email-pw"].forEach((s) => ($(s).value = ""));
     setMsg("#profile-msg", "");
     setMsg("#pw-msg", "");
+    setMsg("#email-msg", "");
     renderPfpPreview();
     showSettingsTab("profile");
     openModal("settings-modal");
@@ -2960,6 +3023,30 @@ const TEMPLATE = `
       setMsg("#profile-msg", "Saved.", "ok");
     } catch (e) {
       setMsg("#profile-msg", "Couldn't save: " + e.message, "error");
+    }
+  });
+
+  $("#email-save-btn").addEventListener("click", async () => {
+    const next = $("#email-new").value.trim();
+    const pw = $("#email-pw").value;
+    setMsg("#email-msg", "");
+    if (!next || !next.includes("@")) {
+      setMsg("#email-msg", "Enter a valid email address.", "error");
+      return;
+    }
+    if (!pw) {
+      setMsg("#email-msg", "Enter your current password to confirm.", "error");
+      return;
+    }
+    const user = auth.currentUser;
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, pw));
+      await verifyBeforeUpdateEmail(user, next);
+      $("#email-new").value = "";
+      $("#email-pw").value = "";
+      setMsg("#email-msg", "Confirmation sent to " + next + ". Click the link in it, then log in with that email.", "ok");
+    } catch (e) {
+      setMsg("#email-msg", friendlyAuthError(e), "error");
     }
   });
 

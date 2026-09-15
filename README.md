@@ -18,8 +18,11 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   Firestore as compressed JPEG data URLs — no Firebase Storage bucket needed, which keeps the project
   on the free plan. Chat images are capped at ~700 KB after compression; profile pictures are cropped
   to a 128px square.
-- **Accounts**: sign up / log in with email + password, reset password by email, change display name,
-  status, avatar (uploaded picture or emoji fallback), and password from User Settings.
+- **Accounts**: sign up with a username + password; email is optional but recommended (it's the only
+  way to reset a forgotten password). Username-only accounts get an internal
+  `username@users.darkweb.local` login behind the scenes and can add a real email later from User
+  Settings → Account. Change display name, status, avatar (uploaded picture or emoji fallback), email,
+  and password from User Settings.
 - **Direct messages**: the chat-bubble button in the rail opens your conversations. Click any member
   (or a message author's name) to DM them. Stored under `dms/{uidA_uidB}` and readable only by the
   two participants - site admins included. Unread counts show on the rail button.
