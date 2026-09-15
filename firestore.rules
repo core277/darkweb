@@ -81,7 +81,7 @@ service cloud.firestore {
       allow update: if isAdmin()
                     || (resource.data.ownerUid == request.auth.uid
                         && request.resource.data.ownerUid == resource.data.ownerUid)
-                    || (isNotBanned() && !isHome(serverId) && onlyMembersChanged() && (addsSelf() || removesSelf()));
+                    || (isNotBanned() && onlyMembersChanged() && (addsSelf() || (removesSelf() && !isHome(serverId))));
       allow delete: if isAdmin() || (resource.data.ownerUid == request.auth.uid && !isHome(serverId));
 
       match /channels/{channelId} {

@@ -528,6 +528,7 @@ const TEMPLATE = `
     if (unsubMe) unsubMe();
     unsubServers = unsubHome = unsubUsers = unsubMe = null;
     homeServer = null;
+    homeJoinAttempted = false;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (membersRefreshTimer) clearInterval(membersRefreshTimer);
     heartbeatTimer = membersRefreshTimer = null;
@@ -836,6 +837,7 @@ const TEMPLATE = `
       (snap) => {
         if (snap.exists()) {
           homeServer = { id: HOME_ID, ...snap.data(), isHome: true };
+          ensureHomeMembership();
         } else {
           homeServer = null;
           if (isGlobalAdmin()) createHome();
@@ -861,6 +863,16 @@ const TEMPLATE = `
     batch.set(doc(collection(db, "servers", id, "channels")), { name: "general", type: "text", createdAt: serverTimestamp() });
     batch.set(doc(collection(db, "servers", id, "channels")), { name: "voice", type: "voice", createdAt: serverTimestamp() });
     await batch.commit();
+  }
+
+  // Membership in HOME is implicit in the rules, but we also record it so older rule sets
+  // (which only check memberIds) still let everyone in. Failure here is harmless.
+  let homeJoinAttempted = false;
+  function ensureHomeMembership() {
+    if (homeJoinAttempted || !me || !homeServer) return;
+    if ((homeServer.memberIds || []).includes(me.uid)) return;
+    homeJoinAttempted = true;
+    updateDoc(doc(db, "servers", HOME_ID), { memberIds: arrayUnion(me.uid) }).catch(() => {});
   }
 
   async function createHome() {
