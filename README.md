@@ -89,6 +89,9 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
 8-character **invite code** (Server name ▾ → **Invite People**) is what friends enter under
 **+ → Join** to get in.
 
+- **Home server**: the lightning-bolt button at the top of the rail is a server *everyone* is in
+  automatically and can't leave. It's created the first time a site admin logs in (document id
+  `HOME`), comes with `#general` and `voice`, and only site admins can manage it.
 - **Server owners** manage their own server: Server name ▾ → **Server Settings** (rename, channels,
   kick members, delete server).
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
