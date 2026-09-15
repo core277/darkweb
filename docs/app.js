@@ -860,8 +860,9 @@ const TEMPLATE = `
       createdAt: serverTimestamp(),
       ...(extra || {}),
     });
-    batch.set(doc(collection(db, "servers", id, "channels")), { name: "general", type: "text", createdAt: serverTimestamp() });
-    batch.set(doc(collection(db, "servers", id, "channels")), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+    // Fixed ids so two admins racing to create HOME can't produce duplicate default channels.
+    batch.set(doc(db, "servers", id, "channels", "general"), { name: "general", type: "text", createdAt: serverTimestamp() });
+    batch.set(doc(db, "servers", id, "channels", "voice"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
     await batch.commit();
   }
 
