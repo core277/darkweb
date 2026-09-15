@@ -73,7 +73,7 @@ const TEMPLATE = `
       </div>
       <div id="member-sidebar">
         <div class="section-label">In Voice</div>
-        <div id="member-list"></div>
+        <div id="member-list"><div class="empty-hint small">Not in a voice channel</div></div>
       </div>
     </div>
   </div>
@@ -335,8 +335,21 @@ const TEMPLATE = `
       if (!currentTextChannel) {
         const firstText = channelsCache.find((c) => c.type === "text");
         if (firstText) selectTextChannel(firstText.id, firstText.name);
+        else showMainPaneEmptyState();
       }
     });
+  }
+
+  function showMainPaneEmptyState() {
+    $("#channel-header").textContent = "Welcome to Dark Web";
+    $("#composer").hidden = true;
+    const isAdmin = me && me.role === "admin";
+    $("#message-list").innerHTML =
+      '<div class="empty-hint">No channels yet.<br>' +
+      (isAdmin
+        ? 'Use <strong>+ New Channel</strong> in the sidebar to create the first one.'
+        : "Ask a server admin to create one.") +
+      "</div>";
   }
 
   function renderChannelList() {
@@ -345,6 +358,10 @@ const TEMPLATE = `
     if (!textList || !voiceList) return;
     textList.innerHTML = "";
     voiceList.innerHTML = "";
+    const textChannels = channelsCache.filter((c) => c.type === "text");
+    const voiceChannels = channelsCache.filter((c) => c.type === "voice");
+    if (!textChannels.length) textList.innerHTML = '<div class="empty-hint small">No text channels</div>';
+    if (!voiceChannels.length) voiceList.innerHTML = '<div class="empty-hint small">No voice channels</div>';
     channelsCache.forEach((c) => {
       const el = document.createElement("div");
       const isActiveText = c.type === "text" && currentTextChannel === c.id;
@@ -456,7 +473,7 @@ const TEMPLATE = `
     currentVoice = null;
     currentVoiceChannel = null;
     $("#voice-controls").hidden = true;
-    $("#member-list").innerHTML = "";
+    $("#member-list").innerHTML = '<div class="empty-hint small">Not in a voice channel</div>';
     renderChannelList();
   });
 
