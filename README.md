@@ -96,7 +96,10 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   kick members, delete server).
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
-  the **Site Admin** panel (all servers, all users, promote/ban).
+  the **Site Admin** panel (all servers, all users, promote/ban/delete). Deleting an account wipes
+  the profile, locks it out, removes it from every server, and shows its old messages as
+  "Deleted User" — the Firebase Auth login itself can only be removed from the Firebase console
+  (Authentication → Users), since browsers can't call the Admin SDK.
 
 ## Local testing (no iPad needed)
 

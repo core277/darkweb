@@ -74,7 +74,7 @@ const TEMPLATE = `
     <div class="auth-card">
       <button class="icon-btn corner-close" id="banned-close-btn" title="Close">${ICONS.close}</button>
       <h1>Access denied</h1>
-      <p class="auth-sub">You have been banned from Dark Web.</p>
+      <p class="auth-sub" id="banned-text">You have been banned from Dark Web.</p>
     </div>
   </div>
 
@@ -669,6 +669,9 @@ const TEMPLATE = `
       if (!data) return;
       if (data.banned) {
         stopSessionListeners();
+        $("#banned-text").textContent = data.deleted
+          ? "This account was deleted by an admin."
+          : "You have been banned from Dark Web.";
         showScreen("banned-screen");
         auth.signOut();
         return;
@@ -1125,7 +1128,7 @@ const TEMPLATE = `
     const ids = currentServer.isHome ? allUsers().map((u) => u.uid) : currentServer.memberIds || [];
     ids.forEach((uid) => {
       const u = usersCache.get(uid);
-      if (!u) return;
+      if (!u || u.banned) return;
       const row = document.createElement("div");
       row.className = "admin-row";
       const label = document.createElement("span");
@@ -1731,7 +1734,7 @@ const TEMPLATE = `
       const owner = usersCache.get(s.ownerUid);
       text.innerHTML = "<b></b><br><small></small>";
       text.querySelector("b").textContent = s.name;
-      const count = s.isHome ? allUsers().length : (s.memberIds || []).length;
+      const count = s.isHome ? allUsers().filter((u) => !u.banned).length : (s.memberIds || []).length;
       text.querySelector("small").textContent =
         (s.isHome ? "Home server · everyone · " : "") +
         count + " member" + (count === 1 ? "" : "s") +
@@ -1786,13 +1789,22 @@ const TEMPLATE = `
         b.textContent = "ADMIN";
         label.appendChild(b);
       }
-      if (u.banned) {
+      if (u.deleted) {
+        const b = document.createElement("span");
+        b.className = "role-badge banned";
+        b.textContent = "DELETED";
+        label.appendChild(b);
+      } else if (u.banned) {
         const b = document.createElement("span");
         b.className = "role-badge banned";
         b.textContent = "BANNED";
         label.appendChild(b);
       }
       const actions = document.createElement("span");
+      row.appendChild(label);
+      row.appendChild(actions);
+      list.appendChild(row);
+      if (u.deleted) return;
       const isSelf = u.uid === me.uid;
       const roleBtn = document.createElement("button");
       roleBtn.className = "btn btn-secondary btn-sm";
@@ -1804,12 +1816,36 @@ const TEMPLATE = `
       banBtn.textContent = u.banned ? "Unban" : "Ban";
       banBtn.disabled = isSelf;
       banBtn.addEventListener("click", () => updateDoc(doc(db, "users", u.uid), { banned: !u.banned }));
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-danger btn-sm";
+      delBtn.textContent = "Delete";
+      delBtn.disabled = isSelf;
+      delBtn.addEventListener("click", () => deleteAccount(u));
       actions.appendChild(roleBtn);
       actions.appendChild(banBtn);
-      row.appendChild(label);
-      row.appendChild(actions);
-      list.appendChild(row);
+      actions.appendChild(delBtn);
     });
+  }
+
+  // Wipes the profile, locks the account out for good, and drops it from every server.
+  // The Firebase Auth login itself can only be removed server-side (Firebase console).
+  async function deleteAccount(u) {
+    if (!confirm('Delete "' + u.displayName + '"? Their profile is erased, they are locked out, and their messages will show as "Deleted User". This cannot be undone.')) return;
+    try {
+      await updateDoc(doc(db, "users", u.uid), {
+        displayName: "Deleted User",
+        status: "",
+        avatarEmoji: DEFAULT_EMOJI,
+        avatarUrl: deleteField(),
+        role: "member",
+        banned: true,
+        deleted: true,
+      });
+      const ownedOrJoined = servers.filter((s) => (s.memberIds || []).includes(u.uid));
+      await Promise.all(ownedOrJoined.map((s) => updateDoc(doc(db, "servers", s.id), { memberIds: arrayRemove(u.uid) })));
+    } catch (e) {
+      alert("Couldn't delete account: " + e.message);
+    }
   }
 
   updateMuteButton();
