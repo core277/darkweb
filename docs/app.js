@@ -45,6 +45,13 @@ const ICONS = {
   chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
   forum: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6h-2v9H6v2a1 1 0 001 1h11l4 4V7a1 1 0 00-1-1zm-4 6V3a1 1 0 00-1-1H3a1 1 0 00-1 1v14l4-4h10a1 1 0 001-1z"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
+  callEnd: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 010-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85a.996.996 0 01-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>',
+  cameraOff: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6.5l-4 4V7a1 1 0 00-1-1H9.83l8.17 8.17V6.5zM3.27 2L2 3.27 4.73 6H4a1 1 0 00-1 1v10a1 1 0 001 1h12c.21 0 .39-.08.55-.18L19.73 21 21 19.73 3.27 2z"/></svg>',
+  screen: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3a2 2 0 00-2 2v12a2 2 0 002 2h5v2h8v-2h5a2 2 0 002-2V5a2 2 0 00-2-2zm0 14H3V5h18v12zm-9-9l-4 4h3v4h2v-4h3l-4-4z"/></svg>',
+  stage: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5v14h18V5H3zm8 12H5v-5h6v5zm0-7H5V7h6v3zm8 7h-6v-5h6v5zm0-7h-6V7h6v3z"/></svg>',
+  chevDown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>',
+  gamepad: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6H3a2 2 0 00-2 2v8a2 2 0 002 2h18a2 2 0 002-2V8a2 2 0 00-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-3a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>',
 };
 
 // Accounts created without an email get an internal one derived from the username so Firebase
@@ -132,21 +139,7 @@ const TEMPLATE = `
         <div id="dm-list"></div>
       </div>
       <div id="channel-scroll">
-        <div class="category">
-          <span class="category-name">Text Channels</span>
-          <button class="category-add" data-type="text" title="Create channel" hidden>${ICONS.plus}</button>
-        </div>
-        <div id="text-channel-list"></div>
-        <div class="category">
-          <span class="category-name">Voice Channels</span>
-          <button class="category-add" data-type="voice" title="Create channel" hidden>${ICONS.plus}</button>
-        </div>
-        <div id="voice-channel-list"></div>
-        <div class="category">
-          <span class="category-name">Forums</span>
-          <button class="category-add" data-type="forum" title="Create forum" hidden>${ICONS.plus}</button>
-        </div>
-        <div id="forum-channel-list"></div>
+        <div id="channel-groups"></div>
       </div>
       <div id="voice-panel" hidden>
         <div class="voice-panel-row">
@@ -154,7 +147,12 @@ const TEMPLATE = `
             <div class="voice-connected">Voice Connected</div>
             <div id="voice-panel-channel" class="voice-panel-channel"></div>
           </div>
-          <button id="leave-voice-btn" class="icon-btn" title="Disconnect">${ICONS.disconnect}</button>
+          <button id="leave-voice-btn" class="hangup-btn" title="Disconnect">${ICONS.callEnd}</button>
+        </div>
+        <div class="voice-actions">
+          <button id="camera-btn" class="voice-action" title="Turn on camera">${ICONS.camera}<span>Camera</span></button>
+          <button id="screen-btn" class="voice-action" title="Share your screen">${ICONS.screen}<span>Share</span></button>
+          <button id="stage-toggle-btn" class="voice-action" title="Show or hide the call view">${ICONS.stage}<span>View</span></button>
         </div>
         <div id="voice-peers"></div>
         <button id="audio-unlock-btn" class="btn btn-primary btn-sm btn-block" hidden>Tap to enable audio</button>
@@ -186,6 +184,7 @@ const TEMPLATE = `
           <button id="close-btn" class="icon-btn" title="Close">${ICONS.close}</button>
         </div>
       </header>
+      <div id="call-stage" hidden></div>
       <div id="message-list"></div>
       <div id="composer" hidden>
         <div id="mention-popup" hidden>
@@ -208,7 +207,7 @@ const TEMPLATE = `
         <div class="composer-bar">
           <button id="attach-btn" class="icon-btn attach" title="Upload image">${ICONS.plus}</button>
           <input type="file" id="image-input" accept="image/*" hidden />
-          <input id="message-input" placeholder="Message" autocomplete="off" />
+          <textarea id="message-input" rows="1" placeholder="Message" autocomplete="off"></textarea>
           <button id="gif-btn" class="icon-btn gif-chip" title="GIFs">GIF</button>
           <button id="emoji-btn" class="icon-btn" title="Emoji">${ICONS.emoji}</button>
           <button id="send-btn" class="icon-btn" title="Send">${ICONS.send}</button>
@@ -247,6 +246,11 @@ const TEMPLATE = `
           <input id="profile-name" maxlength="24" autocomplete="off" />
           <label class="field-label">Custom status</label>
           <input id="profile-status" maxlength="60" autocomplete="off" placeholder="What's on your mind?" />
+          <label class="field-label">About me</label>
+          <textarea id="profile-bio" rows="3" maxlength="190" placeholder="Tell people a bit about yourself"></textarea>
+          <label class="field-label">Games I play</label>
+          <input id="profile-games" maxlength="120" autocomplete="off" placeholder="Minecraft, Fortnite, Rocket League" />
+          <div class="hint">Separate games with commas. They show as tags on your profile.</div>
           <div class="row-end"><button id="profile-save-btn" class="btn btn-primary">Save changes</button></div>
           <div id="profile-msg" class="form-msg"></div>
         </section>
@@ -273,6 +277,31 @@ const TEMPLATE = `
           <div class="row-end"><button id="pw-save-btn" class="btn btn-primary">Update password</button></div>
           <div id="pw-msg" class="form-msg"></div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-card-modal" class="modal" hidden>
+    <div class="modal-card profile-card">
+      <div class="profile-banner"></div>
+      <button class="icon-btn corner-close" id="profile-card-close" title="Close">${ICONS.close}</button>
+      <div class="profile-card-body">
+        <div id="profile-card-avatar"></div>
+        <div id="profile-card-name" class="profile-card-name"></div>
+        <div id="profile-card-status" class="profile-card-status"></div>
+        <div id="profile-card-roles" class="role-chips"></div>
+        <div id="profile-card-bio-wrap">
+          <div class="profile-card-label">About me</div>
+          <div id="profile-card-bio" class="profile-card-bio"></div>
+        </div>
+        <div id="profile-card-games-wrap">
+          <div class="profile-card-label">Games</div>
+          <div id="profile-card-games" class="game-tags"></div>
+        </div>
+        <div class="row-end profile-card-actions">
+          <button id="profile-card-dm" class="btn btn-primary">Message</button>
+          <button id="profile-card-edit" class="btn btn-secondary" hidden>Edit profile</button>
+        </div>
       </div>
     </div>
   </div>
@@ -364,6 +393,15 @@ const TEMPLATE = `
         <div id="server-settings-msg" class="form-msg"></div>
       </div>
       <div id="stab-channels" class="admin-tab" hidden>
+        <div id="category-manager">
+          <h3 class="first">Categories</h3>
+          <form id="new-category-form" class="role-form">
+            <input id="new-category-name" placeholder="New category name" maxlength="32" autocomplete="off" />
+            <button type="submit" class="btn btn-primary">Add category</button>
+          </form>
+          <div id="category-list"></div>
+        </div>
+        <h3>Channels</h3>
         <form id="new-channel-form">
           <input id="new-channel-name" placeholder="new-channel" autocomplete="off" maxlength="32" />
           <select id="new-channel-type">
@@ -371,6 +409,7 @@ const TEMPLATE = `
             <option value="voice">Voice</option>
             <option value="forum">Forum</option>
           </select>
+          <select id="new-channel-cat"></select>
           <button type="submit" class="btn btn-primary">Create</button>
         </form>
         <div id="admin-channel-list"></div>
@@ -708,8 +747,13 @@ const TEMPLATE = `
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
     peerStates.clear();
+    speakingNow.clear();
+    stageStreams.clear();
+    cameraOn = screenOn = false;
     $("#voice-panel").hidden = true;
     $("#audio-unlock-btn").hidden = true;
+    $("#user-panel-avatar").classList.remove("speaking");
+    renderStage();
     renderChannels();
     renderUserPanel();
   }
@@ -892,6 +936,8 @@ const TEMPLATE = `
         avatarEmoji: data.avatarEmoji || DEFAULT_EMOJI,
         avatarUrl: data.avatarUrl || null,
         status: data.status || "",
+        bio: data.bio || "",
+        games: Array.isArray(data.games) ? data.games : [],
       };
       $("#admin-btn").hidden = !isGlobalAdmin();
       renderUserPanel();
@@ -983,7 +1029,10 @@ const TEMPLATE = `
         row.className = "member-row" + (dim ? " offline" : "") + (u.uid !== me.uid ? " clickable" : "");
         if (u.uid !== me.uid) {
           row.title = "Message " + u.displayName;
-          row.addEventListener("click", () => openDm(u.uid));
+          row.addEventListener("click", () => openProfile(u.uid));
+        } else {
+          row.classList.add("clickable");
+          row.addEventListener("click", () => openProfile(u.uid));
         }
         row.appendChild(makeAvatar(u, u.uid, "avatar-32", true));
         const text = document.createElement("div");
@@ -1084,12 +1133,16 @@ const TEMPLATE = `
       name,
       ownerUid: me.uid,
       memberIds: [me.uid],
+      categories: [
+        { id: "text", name: "Text Channels" },
+        { id: "voice", name: "Voice Channels" },
+      ],
       createdAt: serverTimestamp(),
       ...(extra || {}),
     });
     await Promise.all([
-      setDoc(doc(db, "servers", id, "channels", "general"), { name: "general", type: "text", createdAt: serverTimestamp() }),
-      setDoc(doc(db, "servers", id, "channels", "voice"), { name: "voice", type: "voice", createdAt: serverTimestamp() }),
+      setDoc(doc(db, "servers", id, "channels", "general"), { name: "general", type: "text", categoryId: "text", createdAt: serverTimestamp() }),
+      setDoc(doc(db, "servers", id, "channels", "voice"), { name: "voice", type: "voice", categoryId: "voice", createdAt: serverTimestamp() }),
     ]);
   }
 
@@ -1190,6 +1243,7 @@ const TEMPLATE = `
       renderChannels();
       renderRoleList();
       renderServerIconPreview();
+      renderAdminChannelList();
       if (inDm()) return;
       if (userInitiated && !unsubMessages) {
         const ch = currentTextChannel || channelsCache.find((c) => c.type === "text");
@@ -1673,76 +1727,122 @@ const TEMPLATE = `
     });
   }
 
-  function renderChannels() {
-    const textList = $("#text-channel-list");
-    const voiceList = $("#voice-channel-list");
-    textList.innerHTML = "";
-    voiceList.innerHTML = "";
-    $$(".category").forEach((c) => (c.hidden = !currentServer));
-    if (!currentServer) return;
-    const forumList = $("#forum-channel-list");
-    forumList.innerHTML = "";
-    const text = channelsCache.filter((c) => c.type === "text");
-    const voice = channelsCache.filter((c) => c.type === "voice");
-    const forums = channelsCache.filter((c) => c.type === "forum");
-    if (!text.length) textList.innerHTML = '<div class="empty-hint small">No text channels</div>';
-    if (!voice.length) voiceList.innerHTML = '<div class="empty-hint small">No voice channels</div>';
-    if (!forums.length) forumList.innerHTML = '<div class="empty-hint small">No forums</div>';
+  // Categories live on the server doc; channels point at one via categoryId. Channels created
+  // before categories existed fall back to a virtual group per type so nothing disappears.
+  const LEGACY_CATS = { text: "Text Channels", voice: "Voice Channels", forum: "Forums" };
+  const serverCategories = (s) => (s && Array.isArray(s.categories) ? s.categories : []);
 
-    forums.forEach((c) => {
-      const el = document.createElement("div");
-      el.className = "channel-item" + (!inDm() && currentTextChannel && currentTextChannel.id === c.id ? " active" : "");
-      el.innerHTML = '<span class="ch-icon">' + ICONS.forum + '</span><span class="ch-name"></span>';
-      el.querySelector(".ch-name").textContent = c.name;
-      el.addEventListener("click", () => selectForumChannel(c));
-      forumList.appendChild(el);
-    });
-
-    text.forEach((c) => {
-      const el = document.createElement("div");
-      el.className = "channel-item" + (currentTextChannel && currentTextChannel.id === c.id ? " active" : "");
-      el.innerHTML = '<span class="ch-icon">' + ICONS.hash + '</span><span class="ch-name"></span>';
-      el.querySelector(".ch-name").textContent = c.name;
-      el.addEventListener("click", () => selectTextChannel(c));
-      textList.appendChild(el);
-    });
-
-    voice.forEach((c) => {
-      const wrap = document.createElement("div");
-      const el = document.createElement("div");
-      const active = currentVoiceServer === currentServer.id && currentVoiceChannel === c.id;
-      el.className = "channel-item" + (active ? " active" : "");
-      el.innerHTML = '<span class="ch-icon">' + ICONS.speaker + '</span><span class="ch-name"></span>';
-      el.querySelector(".ch-name").textContent = c.name;
-      el.addEventListener("click", () => joinVoiceChannel(c));
-      wrap.appendChild(el);
-      const parts = voiceParticipants.get(c.id) || [];
-      if (parts.length) {
-        const ul = document.createElement("div");
-        ul.className = "voice-members";
-        parts.forEach((p) => {
-          const row = document.createElement("div");
-          row.className = "voice-member";
-          const prof = profileFor(p.uid, p);
-          row.appendChild(makeAvatar(prof, p.uid, "avatar-24", false));
-          const n = document.createElement("span");
-          n.textContent = prof.displayName || p.displayName || "Unknown";
-          row.appendChild(n);
-          ul.appendChild(row);
-        });
-        wrap.appendChild(ul);
+  function channelGroups() {
+    const cats = serverCategories(currentServer);
+    const known = new Set(cats.map((c) => c.id));
+    const groups = cats.map((c) => ({ id: c.id, name: c.name, channels: [] }));
+    const legacy = {};
+    channelsCache.forEach((ch) => {
+      const g = ch.categoryId && known.has(ch.categoryId) ? groups.find((x) => x.id === ch.categoryId) : null;
+      if (g) g.channels.push(ch);
+      else {
+        const key = "_" + ch.type;
+        if (!legacy[key]) legacy[key] = { id: key, name: LEGACY_CATS[ch.type] || "Channels", channels: [], legacy: true };
+        legacy[key].channels.push(ch);
       }
-      voiceList.appendChild(wrap);
     });
+    ["_text", "_voice", "_forum"].forEach((k) => {
+      if (legacy[k]) groups.push(legacy[k]);
+    });
+    return groups;
   }
 
-  $$(".category-add").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $("#new-channel-type").value = btn.dataset.type;
-      openServerSettings("channels");
-      $("#new-channel-name").focus();
+  const collapseKey = (catId) => "darkweb:collapsed:" + currentServer.id + ":" + catId;
+
+  function channelItem(c) {
+    const isVoice = c.type === "voice";
+    const active = isVoice
+      ? currentVoiceServer === currentServer.id && currentVoiceChannel === c.id
+      : !inDm() && currentTextChannel && currentTextChannel.id === c.id;
+    const el = document.createElement("div");
+    el.className = "channel-item" + (active ? " active" : "");
+    const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : ICONS.speaker;
+    el.innerHTML = '<span class="ch-icon">' + icon + '</span><span class="ch-name"></span>';
+    el.querySelector(".ch-name").textContent = c.name;
+    el.addEventListener("click", () => {
+      if (isVoice) joinVoiceChannel(c);
+      else if (c.type === "forum") selectForumChannel(c);
+      else selectTextChannel(c);
     });
-  });
+    if (!isVoice) return el;
+    const wrap = document.createElement("div");
+    wrap.appendChild(el);
+    const parts = voiceParticipants.get(c.id) || [];
+    if (parts.length) {
+      const ul = document.createElement("div");
+      ul.className = "voice-members";
+      parts.forEach((p) => {
+        const row = document.createElement("div");
+        row.className = "voice-member" + (speakingNow.has(p.uid) ? " speaking" : "");
+        row.dataset.uid = p.uid;
+        const prof = profileFor(p.uid, p);
+        row.appendChild(makeAvatar(prof, p.uid, "avatar-24", false));
+        const n = document.createElement("span");
+        n.textContent = prof.displayName || p.displayName || "Unknown";
+        row.appendChild(n);
+        ul.appendChild(row);
+      });
+      wrap.appendChild(ul);
+    }
+    return wrap;
+  }
+
+  function renderChannels() {
+    const box = $("#channel-groups");
+    box.innerHTML = "";
+    if (!currentServer) return;
+    const groups = channelGroups();
+    const manage = hasPerm(currentServer, "manageChannels");
+    if (!groups.length) {
+      box.innerHTML = '<div class="empty-hint small">No channels yet</div>';
+      return;
+    }
+    groups.forEach((g) => {
+      const collapsed = safeGet(collapseKey(g.id)) === "1";
+      const head = document.createElement("div");
+      head.className = "category" + (collapsed ? " collapsed" : "");
+      const nameBtn = document.createElement("button");
+      nameBtn.className = "category-toggle";
+      nameBtn.innerHTML = '<span class="chev">' + ICONS.chevDown + '</span><span class="category-name"></span>';
+      nameBtn.querySelector(".category-name").textContent = g.name;
+      nameBtn.addEventListener("click", () => {
+        safeSet(collapseKey(g.id), collapsed ? "0" : "1");
+        renderChannels();
+      });
+      head.appendChild(nameBtn);
+      if (manage) {
+        const add = document.createElement("button");
+        add.className = "category-add";
+        add.title = "Create channel in " + g.name;
+        add.innerHTML = ICONS.plus;
+        add.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openServerSettings("channels");
+          const sel = $("#new-channel-cat");
+          if (!g.legacy && sel) sel.value = g.id;
+          $("#new-channel-name").focus();
+        });
+        head.appendChild(add);
+      }
+      box.appendChild(head);
+      const list = document.createElement("div");
+      list.className = "category-channels";
+      g.channels.forEach((c) => {
+        const isActive =
+          (c.type === "voice" && currentVoiceServer === currentServer.id && currentVoiceChannel === c.id) ||
+          (c.type !== "voice" && !inDm() && currentTextChannel && currentTextChannel.id === c.id);
+        const hasVoiceMembers = c.type === "voice" && (voiceParticipants.get(c.id) || []).length > 0;
+        if (collapsed && !isActive && !hasVoiceMembers) return;
+        list.appendChild(channelItem(c));
+      });
+      box.appendChild(list);
+    });
+  }
 
   function showNoChannels() {
     currentTextChannel = null;
@@ -2085,7 +2185,7 @@ const TEMPLATE = `
         if (me && m.uid !== me.uid) {
           author.classList.add("clickable");
           author.title = "Message " + (prof.displayName || "");
-          author.addEventListener("click", () => openDm(m.uid));
+          author.addEventListener("click", () => openProfile(m.uid));
         }
         const badgeText =
           !inDm() && m.uid === currentServer.ownerUid ? "OWNER" : prof.role === "admin" ? "ADMIN" : null;
@@ -2286,9 +2386,15 @@ const TEMPLATE = `
     closeMentionPopup();
   }
 
+  function autoGrowComposer() {
+    const el = $("#message-input");
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+  }
   $("#message-input").addEventListener("input", () => {
     mentionIndex = 0;
     updateMentionPopup();
+    autoGrowComposer();
   });
   $("#message-input").addEventListener("blur", () => setTimeout(closeMentionPopup, 150));
 
@@ -2341,6 +2447,7 @@ const TEMPLATE = `
     };
     if (pendingImage) payload.imageData = pendingImage;
     input.value = "";
+    autoGrowComposer();
     clearPendingImage();
     try {
       await addDoc(messagesCol(), payload);
@@ -2831,17 +2938,58 @@ const TEMPLATE = `
   }
 
   // ---------- voice ----------
+  const speakingNow = new Set();
+  const stageStreams = new Map();
+  let stageVisible = true;
+  let cameraOn = false;
+  let screenOn = false;
+
   async function joinVoiceChannel(ch) {
     if (!me || !currentServer) return;
     const sid = currentServer.id;
-    if (currentVoiceServer === sid && currentVoiceChannel === ch.id) return;
+    if (currentVoiceServer === sid && currentVoiceChannel === ch.id) {
+      stageVisible = true;
+      renderStage();
+      return;
+    }
     if (currentVoice) await currentVoice.leave();
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
     peerStates.clear();
+    speakingNow.clear();
+    stageStreams.clear();
+    cameraOn = screenOn = false;
     $("#audio-unlock-btn").hidden = true;
     currentVoice = new VoiceManager(db, me.uid, { displayName: me.displayName, avatarEmoji: me.avatarEmoji }, {
-      onRemoteStream: attachRemoteAudio,
+      onRemoteStream: (uid, stream, kind) => {
+        if (!stream) {
+          attachRemoteAudio(uid, null);
+          Array.from(stageStreams.keys()).forEach((k) => {
+            if (k.startsWith(uid + ":")) stageStreams.delete(k);
+          });
+          speakingNow.delete(uid);
+          renderStage();
+          return;
+        }
+        if (kind === "audio") {
+          attachRemoteAudio(uid, stream);
+          return;
+        }
+        stageStreams.set(uid + ":" + stream.id, { uid, stream, kind });
+        renderStage();
+      },
+      onStreamRemoved: (uid, streamId) => {
+        stageStreams.delete(uid + ":" + streamId);
+        renderStage();
+      },
+      onSpeaking: (uid, speaking) => {
+        if (speaking) speakingNow.add(uid);
+        else speakingNow.delete(uid);
+        $$(".voice-member[data-uid='" + uid + "'], .stage-tile[data-uid='" + uid + "']").forEach((el) =>
+          el.classList.toggle("speaking", speaking)
+        );
+        if (uid === me.uid) $("#user-panel-avatar").classList.toggle("speaking", speaking);
+      },
       onPeerState: (uid, state) => {
         if (state === "closed") peerStates.delete(uid);
         else peerStates.set(uid, state);
@@ -2857,12 +3005,127 @@ const TEMPLATE = `
     currentVoice.setMuted(muted);
     currentVoiceChannel = ch.id;
     currentVoiceServer = sid;
+    stageVisible = true;
     $("#voice-panel").hidden = false;
     $("#voice-panel-channel").textContent = ch.name + " / " + currentServer.name;
+    updateVoiceActionButtons();
     renderVoicePeers();
     renderChannels();
     renderUserPanel();
+    renderStage();
   }
+
+  function voiceChannelParticipants() {
+    if (!currentVoiceChannel) return [];
+    return voiceParticipants.get(currentVoiceChannel) || [];
+  }
+
+  function renderStage() {
+    const stage = $("#call-stage");
+    const show = !!currentVoiceChannel && stageVisible && !inDm() && currentServer && currentServer.id === currentVoiceServer;
+    stage.hidden = !show;
+    if (!show) {
+      stage.innerHTML = "";
+      return;
+    }
+    stage.innerHTML = "";
+    const grid = document.createElement("div");
+    grid.className = "stage-grid";
+    const cameras = new Map();
+    const screens = [];
+    stageStreams.forEach((s) => {
+      if (s.kind === "screen") screens.push(s);
+      else cameras.set(s.uid, s);
+    });
+    if (currentVoice && currentVoice.cameraStream) cameras.set(me.uid, { uid: me.uid, stream: currentVoice.cameraStream, kind: "camera", local: true });
+    if (currentVoice && currentVoice.screenStream) screens.unshift({ uid: me.uid, stream: currentVoice.screenStream, kind: "screen", local: true });
+
+    const parts = voiceChannelParticipants();
+    if (!parts.some((p) => p.uid === me.uid)) parts.push({ uid: me.uid, displayName: me.displayName, avatarEmoji: me.avatarEmoji });
+    parts.forEach((p) => {
+      const prof = profileFor(p.uid, p);
+      const tile = document.createElement("div");
+      tile.className = "stage-tile" + (speakingNow.has(p.uid) ? " speaking" : "");
+      tile.dataset.uid = p.uid;
+      const cam = cameras.get(p.uid);
+      if (cam) {
+        const v = document.createElement("video");
+        v.autoplay = true;
+        v.playsInline = true;
+        v.muted = true;
+        v.srcObject = cam.stream;
+        if (cam.local) v.classList.add("mirror");
+        tile.appendChild(v);
+      } else {
+        const av = makeAvatar(prof, p.uid, "avatar-80", false);
+        tile.appendChild(av);
+      }
+      const label = document.createElement("div");
+      label.className = "stage-label";
+      label.textContent = (prof.displayName || p.displayName || "Member") + (p.uid === me.uid ? " (you)" : "");
+      tile.appendChild(label);
+      grid.appendChild(tile);
+    });
+    screens.forEach((s) => {
+      const prof = profileFor(s.uid, { displayName: "Member" });
+      const tile = document.createElement("div");
+      tile.className = "stage-tile screen-tile";
+      const v = document.createElement("video");
+      v.autoplay = true;
+      v.playsInline = true;
+      v.muted = true;
+      v.srcObject = s.stream;
+      tile.appendChild(v);
+      const label = document.createElement("div");
+      label.className = "stage-label";
+      label.textContent = (s.local ? "Your" : (prof.displayName || "Member") + "'s") + " screen";
+      tile.appendChild(label);
+      tile.addEventListener("dblclick", () => {
+        if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+      });
+      grid.appendChild(tile);
+    });
+    stage.appendChild(grid);
+  }
+
+  function updateVoiceActionButtons() {
+    const cam = $("#camera-btn");
+    cam.innerHTML = (cameraOn ? ICONS.cameraOff : ICONS.camera) + "<span>Camera</span>";
+    cam.classList.toggle("on", cameraOn);
+    cam.title = cameraOn ? "Turn off camera" : "Turn on camera";
+    const scr = $("#screen-btn");
+    scr.classList.toggle("on", screenOn);
+    scr.title = screenOn ? "Stop sharing" : "Share your screen";
+    scr.innerHTML = ICONS.screen + "<span>" + (screenOn ? "Stop" : "Share") + "</span>";
+    $("#stage-toggle-btn").classList.toggle("on", stageVisible);
+  }
+  $("#camera-btn").addEventListener("click", async () => {
+    if (!currentVoice) return;
+    if (cameraOn) {
+      currentVoice.stopCamera();
+      cameraOn = false;
+    } else {
+      cameraOn = await currentVoice.startCamera();
+    }
+    updateVoiceActionButtons();
+    renderStage();
+  });
+  $("#screen-btn").addEventListener("click", async () => {
+    if (!currentVoice) return;
+    if (screenOn) {
+      currentVoice.stopScreen();
+      screenOn = false;
+    } else {
+      screenOn = await currentVoice.startScreen();
+    }
+    updateVoiceActionButtons();
+    renderStage();
+  });
+  $("#stage-toggle-btn").addEventListener("click", () => {
+    stageVisible = !stageVisible;
+    updateVoiceActionButtons();
+    renderStage();
+  });
 
   const peerStates = new Map();
   function renderVoicePeers() {
@@ -2972,6 +3235,8 @@ const TEMPLATE = `
     avatarGrid.querySelectorAll(".avatar-choice").forEach((b) => b.classList.toggle("selected", b.textContent === selectedAvatarEmoji));
     $("#profile-name").value = me.displayName;
     $("#profile-status").value = me.status;
+    $("#profile-bio").value = me.bio || "";
+    $("#profile-games").value = (me.games || []).join(", ");
     const hasEmail = me.email && !isSyntheticEmail(me.email);
     $("#account-email").value = hasEmail ? me.email : "No email on this account";
     $("#account-email-hint").textContent = hasEmail
@@ -3014,7 +3279,9 @@ const TEMPLATE = `
       setMsg("#profile-msg", "Display name can't be empty.", "error");
       return;
     }
-    const update = { displayName, status, avatarEmoji: selectedAvatarEmoji };
+    const bio = $("#profile-bio").value.trim().slice(0, 190);
+    const games = $("#profile-games").value.split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
+    const update = { displayName, status, bio, games, avatarEmoji: selectedAvatarEmoji };
     if (pendingPfp === null) update.avatarUrl = deleteField();
     else if (typeof pendingPfp === "string") update.avatarUrl = pendingPfp;
     try {
@@ -3084,15 +3351,146 @@ const TEMPLATE = `
     await auth.signOut();
   });
 
+  // ---------- profile card ----------
+  function openProfile(uid) {
+    const u = usersCache.get(uid);
+    if (!u) return;
+    closeAllModals();
+    const av = $("#profile-card-avatar");
+    av.innerHTML = "";
+    av.appendChild(makeAvatar(u, uid, "avatar-80", true));
+    const name = $("#profile-card-name");
+    name.textContent = u.displayName || "Unknown";
+    name.style.color = "";
+    const roleChips = $("#profile-card-roles");
+    roleChips.innerHTML = "";
+    if (!inDm() && currentServer) {
+      const top = topRole(currentServer, uid);
+      if (top && top.color) name.style.color = top.color;
+      if (uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
+      const ids = memberRoleIds(currentServer, uid);
+      serverRoles(currentServer)
+        .filter((r) => ids.includes(r.id))
+        .forEach((r) => {
+          const chip = document.createElement("span");
+          chip.className = "role-chip on static";
+          chip.style.setProperty("--chip", r.color || "#5865f2");
+          chip.textContent = r.name;
+          roleChips.appendChild(chip);
+        });
+    }
+    if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
+    $("#profile-card-status").textContent = u.status || (isOnline(u) ? "Online" : "Offline");
+    $("#profile-card-bio").textContent = u.bio || "";
+    $("#profile-card-bio-wrap").hidden = !u.bio;
+    const games = $("#profile-card-games");
+    games.innerHTML = "";
+    (Array.isArray(u.games) ? u.games : []).forEach((g) => {
+      const tag = document.createElement("span");
+      tag.className = "game-tag";
+      tag.innerHTML = ICONS.gamepad + "<span></span>";
+      tag.querySelector("span").textContent = g;
+      games.appendChild(tag);
+    });
+    $("#profile-card-games-wrap").hidden = !games.children.length;
+    const isSelf = uid === me.uid;
+    $("#profile-card-dm").hidden = isSelf;
+    $("#profile-card-edit").hidden = !isSelf;
+    $("#profile-card-dm").onclick = () => openDm(uid);
+    openModal("profile-card-modal");
+  }
+  $("#profile-card-close").addEventListener("click", () => closeModal("profile-card-modal"));
+  $("#profile-card-edit").addEventListener("click", () => {
+    closeModal("profile-card-modal");
+    $("#settings-btn").click();
+  });
+
+  // ---------- categories (server settings) ----------
+  async function saveCategories(categories) {
+    await updateDoc(doc(db, "servers", currentServer.id), { categories });
+  }
+  function renderCategoryManager() {
+    const box = $("#category-manager");
+    if (!box || !currentServer) return;
+    box.hidden = !canManage(currentServer);
+    const list = $("#category-list");
+    list.innerHTML = "";
+    const cats = serverCategories(currentServer);
+    if (!cats.length) list.innerHTML = '<div class="empty-hint small">No categories yet. Channels without one are grouped by type.</div>';
+    cats.forEach((cat, idx) => {
+      const row = document.createElement("div");
+      row.className = "admin-row";
+      const label = document.createElement("span");
+      label.className = "admin-label";
+      label.textContent = cat.name;
+      const actions = document.createElement("span");
+      const mk = (text, cls, fn, disabled) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-sm " + cls;
+        b.textContent = text;
+        b.disabled = !!disabled;
+        b.addEventListener("click", fn);
+        return b;
+      };
+      actions.appendChild(mk("↑", "btn-secondary", () => moveCategory(idx, -1), idx === 0));
+      actions.appendChild(mk("↓", "btn-secondary", () => moveCategory(idx, 1), idx === cats.length - 1));
+      actions.appendChild(mk("Rename", "btn-secondary", async () => {
+        const name = prompt("Category name", cat.name);
+        if (name && name.trim()) await saveCategories(cats.map((c) => (c.id === cat.id ? { ...c, name: name.trim() } : c)));
+      }));
+      actions.appendChild(mk("Delete", "btn-danger", async () => {
+        if (confirm('Delete category "' + cat.name + '"? Its channels stay and regroup by type.')) {
+          await saveCategories(cats.filter((c) => c.id !== cat.id));
+        }
+      }));
+      row.appendChild(label);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+    const sel = $("#new-channel-cat");
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = cats.length ? "Category: by type" : "No category";
+    sel.appendChild(none);
+    cats.forEach((cat) => {
+      const o = document.createElement("option");
+      o.value = cat.id;
+      o.textContent = cat.name;
+      sel.appendChild(o);
+    });
+  }
+  async function moveCategory(idx, dir) {
+    const cats = serverCategories(currentServer).slice();
+    const j = idx + dir;
+    if (j < 0 || j >= cats.length) return;
+    [cats[idx], cats[j]] = [cats[j], cats[idx]];
+    await saveCategories(cats);
+  }
+  $("#new-category-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!currentServer) return;
+    const name = $("#new-category-name").value.trim();
+    if (!name) return;
+    try {
+      await saveCategories(serverCategories(currentServer).concat([{ id: genCode(), name }]));
+      $("#new-category-name").value = "";
+    } catch (err) {
+      setMsg("#server-settings-msg", err.message, "error");
+    }
+  });
+
   // ---------- channel admin (server settings) ----------
   function renderAdminChannelList() {
     const list = $("#admin-channel-list");
     list.innerHTML = "";
     if (!currentServer) return;
+    renderCategoryManager();
     if (!channelsCache.length) {
       list.innerHTML = '<div class="empty-hint small">No channels yet. Create one above.</div>';
       return;
     }
+    const cats = serverCategories(currentServer);
     channelsCache.forEach((c) => {
       const row = document.createElement("div");
       row.className = "admin-row";
@@ -3102,6 +3500,26 @@ const TEMPLATE = `
       label.innerHTML = '<span class="ch-icon">' + icon + "</span><span></span>";
       label.querySelector("span:last-child").textContent = c.name;
       const actions = document.createElement("span");
+      if (cats.length) {
+        const sel = document.createElement("select");
+        sel.className = "cat-select";
+        sel.title = "Category";
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = "By type";
+        sel.appendChild(none);
+        cats.forEach((cat) => {
+          const o = document.createElement("option");
+          o.value = cat.id;
+          o.textContent = cat.name;
+          sel.appendChild(o);
+        });
+        sel.value = c.categoryId && cats.some((x) => x.id === c.categoryId) ? c.categoryId : "";
+        sel.addEventListener("change", () =>
+          updateDoc(doc(channelsCol(), c.id), { categoryId: sel.value || deleteField() }).catch((err) => alert(err.message))
+        );
+        actions.appendChild(sel);
+      }
       const renameBtn = document.createElement("button");
       renameBtn.className = "btn btn-secondary btn-sm";
       renameBtn.textContent = "Rename";
@@ -3130,9 +3548,12 @@ const TEMPLATE = `
     if (!currentServer) return;
     const name = $("#new-channel-name").value.trim().toLowerCase().replace(/\s+/g, "-");
     const type = $("#new-channel-type").value;
+    const categoryId = $("#new-channel-cat").value;
     if (!name) return;
     try {
-      await addDoc(channelsCol(), { name, type, createdAt: serverTimestamp() });
+      const data = { name, type, createdAt: serverTimestamp() };
+      if (categoryId) data.categoryId = categoryId;
+      await addDoc(channelsCol(), data);
       $("#new-channel-name").value = "";
     } catch (err) {
       alert("Couldn't create channel: " + err.message);

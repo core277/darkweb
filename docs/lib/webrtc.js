@@ -17,26 +17,35 @@ const ICE_SERVERS = [
   },
 ];
 const MAX_PARTICIPANTS = 6;
+const SPEAK_THRESHOLD = 0.03;
 
-// Mesh WebRTC voice channel, signaled through Firestore documents (offer/answer/ICE
-// candidates) instead of a dedicated signaling server. The peer with the lexicographically
-// smaller uid always initiates the connection to a given peer, so each pair only opens once.
+// Mesh WebRTC voice/video channel signaled through Firestore documents. Each peer pair uses the
+// "perfect negotiation" pattern (the peer with the larger uid is polite) so either side can add
+// or remove camera / screen tracks at any time without the offers colliding.
 // `join()` takes the Firestore path segments of the voice channel document, e.g.
 // ["servers", serverId, "voiceChannels", channelId].
 export class VoiceManager {
-  constructor(db, uid, profile, { onParticipantsChange, onRemoteStream, onPeerState, onError } = {}) {
+  constructor(db, uid, profile, cb = {}) {
     this.db = db;
     this.uid = uid;
     this.displayName = profile.displayName;
     this.avatarEmoji = profile.avatarEmoji;
-    this.onParticipantsChange = onParticipantsChange || (() => {});
-    this.onRemoteStream = onRemoteStream || (() => {});
-    this.onPeerState = onPeerState || (() => {});
-    this.onError = onError || (() => {});
+    const noop = () => {};
+    this.onParticipantsChange = cb.onParticipantsChange || noop;
+    this.onRemoteStream = cb.onRemoteStream || noop; // (uid, stream|null, kind: audio|camera|screen)
+    this.onStreamRemoved = cb.onStreamRemoved || noop; // (uid, streamId)
+    this.onSpeaking = cb.onSpeaking || noop; // (uid, speaking)
+    this.onPeerState = cb.onPeerState || noop;
+    this.onError = cb.onError || noop;
     this.base = null;
     this.localStream = null;
+    this.cameraStream = null;
+    this.screenStream = null;
     this.peers = new Map();
     this.pendingCandidates = new Map();
+    this.remoteKinds = new Map();
+    this.meters = new Map();
+    this.audioCtx = null;
     this.signalQueue = Promise.resolve();
     this.unsubParticipants = null;
     this.unsubSignals = null;
@@ -47,6 +56,9 @@ export class VoiceManager {
   }
   _signals() {
     return collection(this.db, ...this.base, "signals");
+  }
+  _localStreams() {
+    return [this.localStream, this.cameraStream, this.screenStream].filter(Boolean);
   }
 
   async join(pathSegments) {
@@ -73,6 +85,7 @@ export class VoiceManager {
       );
       return false;
     }
+    this._watch(this.uid, this.localStream);
 
     await setDoc(doc(this.db, ...this.base, "participants", this.uid), {
       displayName: this.displayName,
@@ -84,7 +97,8 @@ export class VoiceManager {
       const others = qs.docs.filter((d) => d.id !== this.uid).map((d) => d.id);
       this.onParticipantsChange(qs.docs.map((d) => ({ uid: d.id, ...d.data() })));
       others.forEach((otherUid) => {
-        if (!this.peers.has(otherUid) && this.uid < otherUid) this._connectTo(otherUid);
+        // The smaller uid opens the connection; the other side answers.
+        if (!this.peers.has(otherUid) && this.uid < otherUid) this._createPeer(otherUid);
       });
       for (const existingUid of Array.from(this.peers.keys())) {
         if (!others.includes(existingUid)) this._closePeer(existingUid);
@@ -118,33 +132,55 @@ export class VoiceManager {
     });
   }
 
-  async _connectTo(otherUid) {
-    const pc = this._createPeerConnection(otherUid);
-    this.peers.set(otherUid, pc);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await this._send(otherUid, "offer", offer);
-  }
-
-  _createPeerConnection(otherUid) {
+  _createPeer(otherUid) {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream));
-    pc.onicecandidate = (e) => {
-      if (e.candidate) this._send(otherUid, "candidate", e.candidate).catch(() => {});
-    };
-    pc.ontrack = (e) => this.onRemoteStream(otherUid, e.streams[0]);
-    pc.onconnectionstatechange = () => {
-      this.onPeerState(otherUid, pc.connectionState);
-      if (pc.connectionState === "failed" && this.uid < otherUid) {
-        // Initiator retries with a fresh ICE gathering round.
-        pc.restartIce();
-        pc.createOffer({ iceRestart: true })
-          .then((offer) => pc.setLocalDescription(offer).then(() => this._send(otherUid, "offer", offer)))
-          .catch(() => {});
+    const peer = { pc, makingOffer: false, ignoreOffer: false, polite: this.uid > otherUid };
+    this.peers.set(otherUid, peer);
+
+    // Tell the other side what our extra streams are before their tracks arrive.
+    if (this.cameraStream) this._send(otherUid, "meta", { streamId: this.cameraStream.id, kind: "camera" }).catch(() => {});
+    if (this.screenStream) this._send(otherUid, "meta", { streamId: this.screenStream.id, kind: "screen" }).catch(() => {});
+    this._localStreams().forEach((st) => st.getTracks().forEach((t) => pc.addTrack(t, st)));
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        peer.makingOffer = true;
+        const offer = await pc.createOffer();
+        if (pc.signalingState !== "stable") return;
+        await pc.setLocalDescription(offer);
+        await this._send(otherUid, "offer", pc.localDescription);
+      } catch (e) {
+        console.warn("Dark Web voice: negotiation failed", e);
+      } finally {
+        peer.makingOffer = false;
       }
     };
+    pc.onicecandidate = (e) => {
+      if (e.candidate && this.base) this._send(otherUid, "candidate", e.candidate).catch(() => {});
+    };
+    pc.ontrack = (e) => {
+      const stream = e.streams[0];
+      if (!stream) return;
+      const kind = e.track.kind === "audio" ? "audio" : this._kindFor(otherUid, stream.id);
+      this.onRemoteStream(otherUid, stream, kind);
+      if (e.track.kind === "audio") this._watch(otherUid, stream);
+      const gone = () => {
+        if (!stream.getTracks().some((t) => t.readyState === "live")) this.onStreamRemoved(otherUid, stream.id);
+      };
+      e.track.onended = gone;
+      stream.onremovetrack = gone;
+    };
+    pc.onconnectionstatechange = () => {
+      this.onPeerState(otherUid, pc.connectionState);
+      if (pc.connectionState === "failed") pc.restartIce();
+    };
     this.onPeerState(otherUid, "connecting");
-    return pc;
+    return peer;
+  }
+
+  _kindFor(uid, streamId) {
+    const kinds = this.remoteKinds.get(uid);
+    return (kinds && kinds.get(streamId)) || "camera";
   }
 
   async _flushCandidates(uid, pc) {
@@ -163,20 +199,31 @@ export class VoiceManager {
     if (!this.base) return;
     const { from, type } = data;
     const payload = JSON.parse(data.payload);
-    let pc = this.peers.get(from);
-    if (!pc) {
-      pc = this._createPeerConnection(from);
-      this.peers.set(from, pc);
+    if (type === "meta") {
+      if (!this.remoteKinds.has(from)) this.remoteKinds.set(from, new Map());
+      if (payload.kind === "stop") {
+        this.remoteKinds.get(from).delete(payload.streamId);
+        this.onStreamRemoved(from, payload.streamId);
+      } else {
+        this.remoteKinds.get(from).set(payload.streamId, payload.kind);
+      }
+      return;
     }
+    const peer = this.peers.get(from) || this._createPeer(from);
+    const pc = peer.pc;
     if (type === "offer") {
+      const collision = peer.makingOffer || pc.signalingState !== "stable";
+      peer.ignoreOffer = !peer.polite && collision;
+      if (peer.ignoreOffer) return;
       await pc.setRemoteDescription(payload);
       await this._flushCandidates(from, pc);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await this._send(from, "answer", answer);
+      await pc.setLocalDescription(await pc.createAnswer());
+      await this._send(from, "answer", pc.localDescription);
     } else if (type === "answer") {
-      await pc.setRemoteDescription(payload);
-      await this._flushCandidates(from, pc);
+      if (pc.signalingState === "have-local-offer") {
+        await pc.setRemoteDescription(payload);
+        await this._flushCandidates(from, pc);
+      }
     } else if (type === "candidate") {
       if (!pc.remoteDescription) {
         if (!this.pendingCandidates.has(from)) this.pendingCandidates.set(from, []);
@@ -186,20 +233,142 @@ export class VoiceManager {
       try {
         await pc.addIceCandidate(payload);
       } catch (e) {
-        // ignore candidates that no longer apply
+        if (!peer.ignoreOffer) console.warn("Dark Web voice: bad candidate", e);
       }
     }
   }
 
+  // ---- camera / screen ----
+  async startCamera() {
+    if (!this.base || this.cameraStream) return !!this.cameraStream;
+    try {
+      this.cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 }, facingMode: "user" },
+      });
+    } catch (e) {
+      this.onError(e && e.name === "NotAllowedError" ? "Camera access was blocked." : "Couldn't start the camera.");
+      return false;
+    }
+    this._addLocalStream(this.cameraStream, "camera");
+    return true;
+  }
+  stopCamera() {
+    if (!this.cameraStream) return;
+    this._removeLocalStream(this.cameraStream, "camera");
+    this.cameraStream = null;
+  }
+  async startScreen() {
+    if (!this.base || this.screenStream) return !!this.screenStream;
+    if (!navigator.mediaDevices.getDisplayMedia) {
+      this.onError("Screen sharing isn't supported in this browser.");
+      return false;
+    }
+    try {
+      this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15 } }, audio: false });
+    } catch (e) {
+      if (!(e && e.name === "NotAllowedError")) this.onError("Couldn't share the screen.");
+      return false;
+    }
+    const track = this.screenStream.getVideoTracks()[0];
+    if (track) track.onended = () => this.stopScreen();
+    this._addLocalStream(this.screenStream, "screen");
+    return true;
+  }
+  stopScreen() {
+    if (!this.screenStream) return;
+    const st = this.screenStream;
+    this.screenStream = null;
+    this._removeLocalStream(st, "screen");
+    this.onStreamRemoved(this.uid, st.id);
+  }
+  _addLocalStream(stream, kind) {
+    this.peers.forEach((peer, uid) => {
+      this._send(uid, "meta", { streamId: stream.id, kind }).catch(() => {});
+      stream.getTracks().forEach((t) => peer.pc.addTrack(t, stream));
+    });
+  }
+  _removeLocalStream(stream, kind) {
+    const tracks = stream.getTracks();
+    this.peers.forEach((peer, uid) => {
+      peer.pc.getSenders().forEach((s) => {
+        if (s.track && tracks.includes(s.track)) {
+          try {
+            peer.pc.removeTrack(s);
+          } catch (e) {
+            // connection may already be closed
+          }
+        }
+      });
+      this._send(uid, "meta", { streamId: stream.id, kind: "stop" }).catch(() => {});
+    });
+    tracks.forEach((t) => t.stop());
+  }
+
+  // ---- speaking detection ----
+  _ctx() {
+    if (!this.audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      this.audioCtx = new AC();
+    }
+    if (this.audioCtx.state === "suspended") this.audioCtx.resume().catch(() => {});
+    return this.audioCtx;
+  }
+  _watch(key, stream) {
+    if (!stream.getAudioTracks().length) return;
+    const ctx = this._ctx();
+    if (!ctx) return;
+    this._unwatch(key);
+    try {
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const meter = { src, analyser, speaking: false, timer: null };
+      meter.timer = setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const speaking = Math.sqrt(sum / data.length) > SPEAK_THRESHOLD;
+        if (speaking !== meter.speaking) {
+          meter.speaking = speaking;
+          this.onSpeaking(key, speaking);
+        }
+      }, 120);
+      this.meters.set(key, meter);
+    } catch (e) {
+      // analyser unavailable; speaking indicator just stays off
+    }
+  }
+  _unwatch(key) {
+    const m = this.meters.get(key);
+    if (!m) return;
+    clearInterval(m.timer);
+    try {
+      m.src.disconnect();
+    } catch (e) {
+      // already disconnected
+    }
+    this.meters.delete(key);
+    if (m.speaking) this.onSpeaking(key, false);
+  }
+
   _closePeer(uid) {
-    const pc = this.peers.get(uid);
-    if (pc) {
-      pc.onconnectionstatechange = null;
-      pc.close();
+    const peer = this.peers.get(uid);
+    if (peer) {
+      peer.pc.onconnectionstatechange = null;
+      peer.pc.onnegotiationneeded = null;
+      peer.pc.close();
       this.peers.delete(uid);
     }
     this.pendingCandidates.delete(uid);
-    this.onRemoteStream(uid, null);
+    this.remoteKinds.delete(uid);
+    this._unwatch(uid);
+    this.onRemoteStream(uid, null, "audio");
     this.onPeerState(uid, "closed");
   }
 
@@ -216,8 +385,15 @@ export class VoiceManager {
     if (this.unsubSignals) this.unsubSignals();
     this.unsubParticipants = this.unsubSignals = null;
     for (const uid of Array.from(this.peers.keys())) this._closePeer(uid);
-    if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop());
-    this.localStream = null;
+    for (const key of Array.from(this.meters.keys())) this._unwatch(key);
+    [this.localStream, this.cameraStream, this.screenStream].forEach((st) => {
+      if (st) st.getTracks().forEach((t) => t.stop());
+    });
+    this.localStream = this.cameraStream = this.screenStream = null;
+    if (this.audioCtx) {
+      this.audioCtx.close().catch(() => {});
+      this.audioCtx = null;
+    }
     try {
       await deleteDoc(doc(this.db, ...base, "participants", this.uid));
     } catch (e) {
