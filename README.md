@@ -20,6 +20,9 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   to a 128px square.
 - **Accounts**: sign up / log in with email + password, reset password by email, change display name,
   status, avatar (uploaded picture or emoji fallback), and password from User Settings.
+- **Direct messages**: the chat-bubble button in the rail opens your conversations. Click any member
+  (or a message author's name) to DM them. Stored under `dms/{uidA_uidB}` and readable only by the
+  two participants - site admins included. Unread counts show on the rail button.
 - **Servers**: every user can create servers and invite people with a code. Data lives under
   `servers/{code}` with `channels`, `messages`, and `voiceChannels` nested beneath it; `memberIds`
   on the server document drives access in `firestore.rules`. Site admins can read and manage all of

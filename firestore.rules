@@ -50,6 +50,35 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Direct messages: document id is the two uids sorted and joined with "_".
+    // Only the two participants can read them - not even site admins.
+    match /dms/{dmId} {
+      function isParticipant() {
+        return isSignedIn() && request.auth.uid in resource.data.participants;
+      }
+      function dmIdFor(p) {
+        return p[0] < p[1] ? p[0] + '_' + p[1] : p[1] + '_' + p[0];
+      }
+      allow get: if isSignedIn() && (resource == null || request.auth.uid in resource.data.participants);
+      allow list: if isParticipant();
+      allow create: if isNotBanned()
+                    && request.resource.data.participants.size() == 2
+                    && request.auth.uid in request.resource.data.participants
+                    && dmId == dmIdFor(request.resource.data.participants);
+      allow update: if isParticipant() && request.resource.data.participants == resource.data.participants;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function canUseDm() {
+          return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.participants;
+        }
+        allow read: if canUseDm();
+        allow create: if canUseDm() && isNotBanned() && request.resource.data.uid == request.auth.uid;
+        allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow update: if false;
+      }
+    }
+
     match /servers/{serverId} {
       function onlyMembersChanged() {
         return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds']);

@@ -42,6 +42,7 @@ const ICONS = {
   menu: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>',
   emoji: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm3.5-9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>',
 };
 
 const EMOJI_GROUPS = [
@@ -95,6 +96,7 @@ const TEMPLATE = `
   <div id="app-screen" hidden>
     <nav id="server-rail">
       <div class="rail-home" title="Dark Web">${ICONS.logo}</div>
+      <button id="dm-rail-btn" class="rail-icon rail-dm" title="Direct Messages">${ICONS.chat}<span id="dm-badge" class="rail-badge" hidden></span></button>
       <div class="rail-sep"></div>
       <div id="server-list"></div>
       <button id="add-server-btn" class="rail-icon rail-add" title="Add a server">${ICONS.plus}</button>
@@ -106,6 +108,10 @@ const TEMPLATE = `
         <button id="menu-invite">Invite People</button>
         <button id="menu-settings" hidden>Server Settings</button>
         <button id="menu-leave" class="danger" hidden>Leave Server</button>
+      </div>
+      <div id="dm-sidebar">
+        <div class="dm-sidebar-head"><span>Direct Messages</span><button id="new-dm-btn" class="icon-btn" title="New message">${ICONS.plus}</button></div>
+        <div id="dm-list"></div>
       </div>
       <div id="channel-scroll">
         <div class="category">
@@ -233,6 +239,16 @@ const TEMPLATE = `
           <div class="row-end"><button id="pw-save-btn" class="btn btn-primary">Update password</button></div>
           <div id="pw-msg" class="form-msg"></div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="new-dm-modal" class="modal" hidden>
+    <div class="modal-card small-card">
+      <div class="modal-header"><span>New message</span><button id="new-dm-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="admin-tab">
+        <input id="new-dm-search" placeholder="Search people" autocomplete="off" />
+        <div id="new-dm-list" class="dm-user-list"></div>
       </div>
     </div>
   </div>
@@ -375,6 +391,11 @@ const TEMPLATE = `
   let lastRole = null;
   let usersCache = new Map();
   let servers = [];
+  let viewMode = "server";
+  let dms = [];
+  let currentDm = null;
+  let unsubDms = null;
+  let unsubDmMessages = null;
   let homeServer = null;
   let creatingHome = false;
   let currentServer = null;
@@ -562,9 +583,16 @@ const TEMPLATE = `
     if (unsubHome) unsubHome();
     if (unsubUsers) unsubUsers();
     if (unsubMe) unsubMe();
-    unsubServers = unsubHome = unsubUsers = unsubMe = null;
+    if (unsubDms) unsubDms();
+    if (unsubDmMessages) unsubDmMessages();
+    unsubServers = unsubHome = unsubUsers = unsubMe = unsubDms = unsubDmMessages = null;
     homeServer = null;
     homeJoinAttempted = false;
+    dms = [];
+    currentDm = null;
+    viewMode = "server";
+    $("#app-screen").classList.remove("dm-mode");
+    $("#channel-header-icon").innerHTML = ICONS.hash;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (membersRefreshTimer) clearInterval(membersRefreshTimer);
     heartbeatTimer = membersRefreshTimer = null;
@@ -733,6 +761,7 @@ const TEMPLATE = `
         startHeartbeat(userRef);
         subscribeUsers();
         subscribeHome();
+        subscribeDms();
       }
       if (firstLoad || me.role !== lastRole) subscribeServers();
       if (!firstLoad && isGlobalAdmin() && !homeServer) createHome();
@@ -764,6 +793,7 @@ const TEMPLATE = `
       renderMembers();
       renderMessages();
       renderChannels();
+      renderDmList();
       renderAdminUserList();
       renderAdminServerList();
       renderServerMemberList();
@@ -800,7 +830,11 @@ const TEMPLATE = `
       list.appendChild(h);
       arr.forEach((u) => {
         const row = document.createElement("div");
-        row.className = "member-row" + (dim ? " offline" : "");
+        row.className = "member-row" + (dim ? " offline" : "") + (u.uid !== me.uid ? " clickable" : "");
+        if (u.uid !== me.uid) {
+          row.title = "Message " + u.displayName;
+          row.addEventListener("click", () => openDm(u.uid));
+        }
         row.appendChild(makeAvatar(u, u.uid, "avatar-32", true));
         const text = document.createElement("div");
         text.className = "member-text";
@@ -954,12 +988,13 @@ const TEMPLATE = `
   }
 
   $(".rail-home").addEventListener("click", () => {
-    if (homeServer) selectServer(homeServer);
+    if (homeServer) selectServer(homeServer, true);
   });
 
   function renderRail() {
     const home = $(".rail-home");
-    home.classList.toggle("active", !!(currentServer && currentServer.isHome));
+    home.classList.toggle("active", !inDm() && !!(currentServer && currentServer.isHome));
+    $("#dm-rail-btn").classList.toggle("active", inDm());
     home.classList.toggle("disabled", !homeServer);
     home.title = homeServer ? homeServer.name + " (everyone)" : "Home server not set up yet";
     const list = $("#server-list");
@@ -968,33 +1003,43 @@ const TEMPLATE = `
       const el = document.createElement("div");
       el.className =
         "rail-icon" +
-        (currentServer && currentServer.id === s.id ? " active" : "") +
+        (!inDm() && currentServer && currentServer.id === s.id ? " active" : "") +
         (isMemberOf(s) ? "" : " guest");
       el.title = s.name + (isMemberOf(s) ? "" : " (viewing as admin)");
       el.textContent = serverInitials(s.name);
       el.style.setProperty("--accent", avatarColor(s.id));
-      el.addEventListener("click", () => selectServer(s));
+      el.addEventListener("click", () => selectServer(s, true));
       list.appendChild(el);
     });
   }
 
-  function selectServer(s) {
+  // userInitiated: a click on the rail (leaves DM view). Background calls from snapshot
+  // handlers keep whatever view the user is looking at.
+  function selectServer(s, userInitiated) {
     const same = currentServer && currentServer.id === s.id;
     currentServer = s;
     safeSet("darkweb:lastServer", s.id);
+    if (inDm() && userInitiated) leaveDmView();
     renderRail();
     renderServerHeader();
     renderMembers();
     renderServerMemberList();
     if (same) {
       renderChannels();
-      renderMessages();
+      if (inDm()) return;
+      if (userInitiated && !unsubMessages) {
+        const ch = currentTextChannel || channelsCache.find((c) => c.type === "text");
+        if (ch) selectTextChannel(ch, 1);
+        else showNoChannels();
+      } else {
+        renderMessages();
+      }
       return;
     }
     teardownServerListeners();
     currentTextChannel = null;
     channelsCache = [];
-    lastMessages = [];
+    if (!inDm()) lastMessages = [];
     $("#app-screen").classList.remove("sidebar-open");
     subscribeChannels();
   }
@@ -1004,11 +1049,12 @@ const TEMPLATE = `
     teardownServerListeners();
     currentTextChannel = null;
     channelsCache = [];
-    lastMessages = [];
     renderRail();
     renderServerHeader();
     renderChannels();
     renderMembers();
+    if (inDm()) return;
+    lastMessages = [];
     $("#channel-header-name").textContent = "Welcome";
     $("#composer").hidden = true;
     const list = $("#message-list");
@@ -1218,7 +1264,8 @@ const TEMPLATE = `
     else if (onGiveUp) onGiveUp(err);
   }
 
-  function showAccessDenied(what) {
+  function showAccessDenied(what, forDm) {
+    if (inDm() !== !!forDm) return;
     $("#composer").hidden = true;
     $("#message-list").innerHTML =
       '<div class="empty-hint"><div class="empty-title">Can\'t load ' + what + "</div>" +
@@ -1242,11 +1289,13 @@ const TEMPLATE = `
         if (!stillExists) {
           currentTextChannel = null;
           const firstText = channelsCache.find((c) => c.type === "text");
-          if (firstText) selectTextChannel(firstText);
+          if (inDm()) currentTextChannel = firstText || null;
+          else if (firstText) selectTextChannel(firstText);
           else showNoChannels();
         } else {
           const fresh = channelsCache.find((c) => c.id === currentTextChannel.id);
-          if (fresh.name !== currentTextChannel.name) selectTextChannel(fresh);
+          if (inDm()) currentTextChannel = fresh;
+          else if (fresh.name !== currentTextChannel.name) selectTextChannel(fresh);
         }
         if (currentVoiceServer === sid && currentVoiceChannel && !channelsCache.some((c) => c.id === currentVoiceChannel)) {
           leaveVoice();
@@ -1340,9 +1389,10 @@ const TEMPLATE = `
 
   function showNoChannels() {
     currentTextChannel = null;
-    lastMessages = [];
     if (unsubMessages) unsubMessages();
     unsubMessages = null;
+    if (inDm()) return;
+    lastMessages = [];
     $("#channel-header-name").textContent = currentServer ? currentServer.name : "Welcome";
     $("#composer").hidden = true;
     $("#message-list").innerHTML =
@@ -1355,9 +1405,13 @@ const TEMPLATE = `
   }
 
   // ---------- messages ----------
-  const messagesCol = () => collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
+  const messagesCol = () =>
+    inDm()
+      ? collection(db, "dms", currentDm.id, "messages")
+      : collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
 
   function selectTextChannel(ch, attempt = 0) {
+    if (inDm()) leaveDmView();
     const switching = attempt > 0 || !currentTextChannel || currentTextChannel.id !== ch.id;
     currentTextChannel = ch;
     $("#channel-header-name").textContent = ch.name;
@@ -1372,7 +1426,7 @@ const TEMPLATE = `
     unsubMessages = onSnapshot(
       query(messagesCol(), orderBy("createdAt"), limit(MESSAGE_LIMIT)),
       (qs) => {
-        if (!currentServer || currentServer.id !== sid || !currentTextChannel || currentTextChannel.id !== ch.id) return;
+        if (inDm() || !currentServer || currentServer.id !== sid || !currentTextChannel || currentTextChannel.id !== ch.id) return;
         lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
         renderMessages();
       },
@@ -1396,12 +1450,27 @@ const TEMPLATE = `
     return w;
   }
 
+  function dmWelcomeBlock(name) {
+    const w = document.createElement("div");
+    w.className = "welcome";
+    w.innerHTML = "<h2></h2><p>This is the beginning of your direct message history with <b></b>.</p>";
+    w.querySelector("h2").textContent = name;
+    w.querySelector("b").textContent = "@" + name;
+    return w;
+  }
+
   function renderMessages() {
     const list = $("#message-list");
-    if (!currentServer || !currentTextChannel) return;
+    if (inDm() ? !currentDm : !currentServer || !currentTextChannel) return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
     list.innerHTML = "";
-    if (lastMessages.length < MESSAGE_LIMIT) list.appendChild(welcomeBlock(currentTextChannel.name));
+    if (lastMessages.length < MESSAGE_LIMIT) {
+      list.appendChild(
+        inDm()
+          ? dmWelcomeBlock(profileFor(dmOther(currentDm), { displayName: "Unknown" }).displayName || "Unknown")
+          : welcomeBlock(currentTextChannel.name)
+      );
+    }
 
     let prev = null;
     lastMessages.forEach(({ id, data: m }) => {
@@ -1431,7 +1500,13 @@ const TEMPLATE = `
         const author = document.createElement("span");
         author.className = "msg-author";
         author.textContent = prof.displayName || m.displayName || "Unknown";
-        const badgeText = m.uid === currentServer.ownerUid ? "OWNER" : prof.role === "admin" ? "ADMIN" : null;
+        if (me && m.uid !== me.uid) {
+          author.classList.add("clickable");
+          author.title = "Message " + (prof.displayName || "");
+          author.addEventListener("click", () => openDm(m.uid));
+        }
+        const badgeText =
+          !inDm() && m.uid === currentServer.ownerUid ? "OWNER" : prof.role === "admin" ? "ADMIN" : null;
         if (badgeText) {
           const badge = document.createElement("span");
           badge.className = "role-badge";
@@ -1469,7 +1544,7 @@ const TEMPLATE = `
       }
       row.appendChild(body);
 
-      if (me && (canManage(currentServer) || me.uid === m.uid)) {
+      if (me && (me.uid === m.uid || (!inDm() && canManage(currentServer)))) {
         const actions = document.createElement("div");
         actions.className = "msg-actions";
         const del = document.createElement("button");
@@ -1547,8 +1622,10 @@ const TEMPLATE = `
   const mentionList = $("#mention-list");
 
   function mentionCandidates(q) {
-    if (!currentServer) return [];
-    const pool = currentServer.isHome
+    let pool;
+    if (inDm()) pool = (currentDm.participants || []).map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }));
+    else if (!currentServer) return [];
+    else pool = currentServer.isHome
       ? allUsers()
       : (currentServer.memberIds || []).map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }));
     const items = pool
@@ -1560,7 +1637,7 @@ const TEMPLATE = `
       )
       .slice(0, 8)
       .map((u) => ({ uid: u.uid, name: u.displayName, profile: u }));
-    if ("everyone".startsWith(q) && canManage(currentServer)) items.unshift({ uid: "everyone", name: "everyone" });
+    if (!inDm() && "everyone".startsWith(q) && canManage(currentServer)) items.unshift({ uid: "everyone", name: "everyone" });
     return items;
   }
 
@@ -1669,7 +1746,7 @@ const TEMPLATE = `
   async function sendMessage() {
     const input = $("#message-input");
     const text = input.value.trim();
-    if ((!text && !pendingImage) || !currentServer || !currentTextChannel || !me) return;
+    if ((!text && !pendingImage) || !me || (inDm() ? !currentDm : !currentServer || !currentTextChannel)) return;
     closeMentionPopup();
     closePicker();
     const payload = {
@@ -1685,6 +1762,7 @@ const TEMPLATE = `
     clearPendingImage();
     try {
       await addDoc(messagesCol(), payload);
+      noteDmActivity(text || "Sent an image");
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -1876,7 +1954,7 @@ const TEMPLATE = `
   }
 
   async function sendGif(url) {
-    if (!currentServer || !currentTextChannel || !me) return;
+    if (!me || (inDm() ? !currentDm : !currentServer || !currentTextChannel)) return;
     closePicker();
     try {
       await addDoc(messagesCol(), {
@@ -1888,6 +1966,7 @@ const TEMPLATE = `
         mentions: [],
         createdAt: serverTimestamp(),
       });
+      noteDmActivity("Sent a GIF");
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -1912,6 +1991,255 @@ const TEMPLATE = `
     pendingImage = null;
     $("#image-preview").hidden = true;
     $("#image-preview-img").src = "";
+  }
+
+  // ---------- direct messages ----------
+  const DM_READ_KEY = "darkweb:dmRead";
+  const dmIdFor = (a, b) => (a < b ? a + "_" + b : b + "_" + a);
+  function inDm() {
+    return viewMode === "dm";
+  }
+  function dmOther(dm) {
+    return (dm.participants || []).find((u) => u !== me.uid) || me.uid;
+  }
+  function dmReadMap() {
+    try {
+      return JSON.parse(safeGet(DM_READ_KEY) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+  function markDmRead(dmId) {
+    const m = dmReadMap();
+    m[dmId] = Date.now() + 2000;
+    safeSet(DM_READ_KEY, JSON.stringify(m));
+  }
+  function dmUnread(dm) {
+    if (!me || !dm.lastMessageAt || dm.lastFrom === me.uid) return false;
+    return ts(dm.lastMessageAt) > (dmReadMap()[dm.id] || 0);
+  }
+
+  function subscribeDms() {
+    if (unsubDms) unsubDms();
+    unsubDms = onSnapshot(
+      query(collection(db, "dms"), where("participants", "array-contains", me.uid)),
+      (qs) => {
+        dms = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+        dms.sort((a, b) => ts(b.lastMessageAt || b.createdAt) - ts(a.lastMessageAt || a.createdAt));
+        if (currentDm) {
+          const fresh = dms.find((d) => d.id === currentDm.id);
+          if (fresh) {
+            currentDm = fresh;
+            if (inDm()) markDmRead(fresh.id);
+          }
+        }
+        renderDmList();
+        renderDmBadge();
+      },
+      (err) => console.error("Dark Web: dms listener", err)
+    );
+  }
+
+  function renderDmBadge() {
+    const n = dms.filter(dmUnread).length;
+    const b = $("#dm-badge");
+    b.hidden = n === 0;
+    b.textContent = n > 9 ? "9+" : String(n);
+  }
+
+  function renderDmList() {
+    const list = $("#dm-list");
+    if (!list || !me) return;
+    list.innerHTML = "";
+    if (!dms.length) {
+      list.innerHTML = '<div class="empty-hint small">No conversations yet. Click a member, or the + above, to start one.</div>';
+      return;
+    }
+    dms.forEach((dm) => {
+      const other = dmOther(dm);
+      const prof = profileFor(other, { displayName: "Unknown" });
+      const unread = dmUnread(dm);
+      const row = document.createElement("div");
+      row.className = "member-row dm-row" + (currentDm && currentDm.id === dm.id && inDm() ? " active" : "") + (unread ? " unread" : "");
+      row.appendChild(makeAvatar(prof, other, "avatar-32", true));
+      const text = document.createElement("div");
+      text.className = "member-text";
+      const name = document.createElement("div");
+      name.className = "member-name";
+      name.textContent = prof.displayName || "Unknown";
+      text.appendChild(name);
+      if (dm.lastText) {
+        const st = document.createElement("div");
+        st.className = "member-status";
+        st.textContent = (dm.lastFrom === me.uid ? "You: " : "") + dm.lastText;
+        text.appendChild(st);
+      }
+      row.appendChild(text);
+      if (unread) {
+        const dot = document.createElement("span");
+        dot.className = "unread-dot";
+        row.appendChild(dot);
+      }
+      row.addEventListener("click", () => openDm(other));
+      list.appendChild(row);
+    });
+  }
+
+  async function openDm(otherUid) {
+    if (!me || !otherUid || otherUid === me.uid) return;
+    closeModal("new-dm-modal");
+    const id = dmIdFor(me.uid, otherUid);
+    let dm = dms.find((d) => d.id === id);
+    if (!dm) {
+      const participants = [me.uid, otherUid].sort();
+      try {
+        const ref = doc(db, "dms", id);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) await setDoc(ref, { participants, createdAt: serverTimestamp() });
+        dm = { id, participants };
+      } catch (e) {
+        alert("Couldn't open the conversation: " + e.message);
+        return;
+      }
+    }
+    enterDmView(dm);
+  }
+
+  function enterDmView(dm) {
+    const switching = !inDm() || !currentDm || currentDm.id !== dm.id;
+    viewMode = "dm";
+    currentDm = dm;
+    markDmRead(dm.id);
+    closeAllModals();
+    if (unsubMessages) unsubMessages();
+    unsubMessages = null;
+    $("#app-screen").classList.add("dm-mode");
+    $("#app-screen").classList.remove("sidebar-open");
+    renderRail();
+    renderDmList();
+    renderDmBadge();
+    const other = dmOther(dm);
+    const prof = profileFor(other, { displayName: "Unknown" });
+    const icon = $("#channel-header-icon");
+    icon.innerHTML = "";
+    icon.appendChild(makeAvatar(prof, other, "avatar-24", false));
+    $("#channel-header-name").textContent = prof.displayName || "Unknown";
+    $("#composer").hidden = false;
+    $("#message-input").placeholder = "Message @" + (prof.displayName || "");
+    if (!switching) {
+      renderMessages();
+      return;
+    }
+    messagesFirstRender = true;
+    lastMessages = [];
+    renderMessages();
+    subscribeDmMessages(dm);
+  }
+
+  function subscribeDmMessages(dm, attempt = 0) {
+    if (unsubDmMessages) unsubDmMessages();
+    unsubDmMessages = onSnapshot(
+      query(collection(db, "dms", dm.id, "messages"), orderBy("createdAt"), limit(MESSAGE_LIMIT)),
+      (qs) => {
+        if (!inDm() || !currentDm || currentDm.id !== dm.id) return;
+        lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
+        renderMessages();
+        markDmRead(dm.id);
+        renderDmList();
+        renderDmBadge();
+      },
+      (err) => retryOnDenied(err, "dm messages", (n) => {
+        if (inDm() && currentDm && currentDm.id === dm.id) subscribeDmMessages(dm, n);
+      }, attempt, () => {
+        if (inDm() && currentDm && currentDm.id === dm.id) showAccessDenied("this conversation", true);
+      })
+    );
+  }
+
+  function enterDmHome() {
+    viewMode = "dm";
+    currentDm = null;
+    if (unsubMessages) unsubMessages();
+    unsubMessages = null;
+    if (unsubDmMessages) unsubDmMessages();
+    unsubDmMessages = null;
+    $("#app-screen").classList.add("dm-mode");
+    $("#app-screen").classList.remove("sidebar-open");
+    renderRail();
+    renderDmList();
+    $("#channel-header-icon").innerHTML = ICONS.chat;
+    $("#channel-header-name").textContent = "Direct Messages";
+    $("#composer").hidden = true;
+    const list = $("#message-list");
+    list.innerHTML =
+      '<div class="empty-hint"><div class="empty-title">Direct Messages</div>' +
+      "Pick a conversation on the left, click someone in a member list, or start a new one." +
+      '<div class="empty-actions"><button class="btn btn-primary" id="dmhome-new">New message</button></div></div>';
+    list.querySelector("#dmhome-new").addEventListener("click", openNewDm);
+  }
+
+  // Switches state back to server view; the caller re-renders the channel.
+  function leaveDmView() {
+    if (!inDm()) return;
+    viewMode = "server";
+    if (unsubDmMessages) unsubDmMessages();
+    unsubDmMessages = null;
+    lastMessages = [];
+    $("#app-screen").classList.remove("dm-mode");
+    $("#channel-header-icon").innerHTML = ICONS.hash;
+    renderRail();
+    renderDmList();
+  }
+
+  $("#dm-rail-btn").addEventListener("click", () => {
+    if (inDm()) return;
+    if (currentDm) enterDmView(currentDm);
+    else if (dms.length) enterDmView(dms[0]);
+    else enterDmHome();
+  });
+
+  function openNewDm() {
+    $("#new-dm-search").value = "";
+    renderNewDmList("");
+    openModal("new-dm-modal");
+    $("#new-dm-search").focus();
+  }
+  function renderNewDmList(q) {
+    const list = $("#new-dm-list");
+    list.innerHTML = "";
+    const people = allUsers()
+      .filter((u) => u.uid !== me.uid && u.displayName && !u.banned && u.displayName.toLowerCase().includes(q))
+      .sort((a, b) => (isOnline(a) ? 0 : 1) - (isOnline(b) ? 0 : 1) || a.displayName.localeCompare(b.displayName));
+    if (!people.length) {
+      list.innerHTML = '<div class="empty-hint small">Nobody found.</div>';
+      return;
+    }
+    people.forEach((u) => {
+      const row = document.createElement("div");
+      row.className = "member-row clickable";
+      row.appendChild(makeAvatar(u, u.uid, "avatar-32", true));
+      const text = document.createElement("div");
+      text.className = "member-text";
+      const name = document.createElement("div");
+      name.className = "member-name";
+      name.textContent = u.displayName;
+      text.appendChild(name);
+      row.appendChild(text);
+      row.addEventListener("click", () => openDm(u.uid));
+      list.appendChild(row);
+    });
+  }
+  $("#new-dm-btn").addEventListener("click", openNewDm);
+  $("#new-dm-close").addEventListener("click", () => closeModal("new-dm-modal"));
+  $("#new-dm-search").addEventListener("input", () => renderNewDmList($("#new-dm-search").value.trim().toLowerCase()));
+
+  function noteDmActivity(summary) {
+    if (!inDm() || !currentDm) return;
+    updateDoc(doc(db, "dms", currentDm.id), {
+      lastMessageAt: serverTimestamp(),
+      lastText: summary.slice(0, 80),
+      lastFrom: me.uid,
+    }).catch(() => {});
   }
 
   // ---------- voice ----------

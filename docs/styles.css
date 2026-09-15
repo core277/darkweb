@@ -232,6 +232,47 @@ svg { width: 20px; height: 20px; display: block; }
 .rail-icon:hover::before { height: 20px; margin-top: -10px; }
 .rail-icon.active::before { height: 40px; margin-top: -20px; }
 .rail-icon.guest { box-shadow: inset 0 0 0 2px var(--yellow); }
+.rail-dm { color: var(--text); }
+.rail-dm svg { width: 24px; height: 24px; }
+.rail-dm:hover, .rail-dm.active { background: var(--blurple); color: #fff; }
+.rail-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--rail);
+  box-sizing: content-box;
+}
+#dm-sidebar { display: none; flex: 1; overflow-y: auto; padding: 8px; }
+#app-screen.dm-mode #dm-sidebar { display: block; }
+#app-screen.dm-mode #server-header,
+#app-screen.dm-mode #server-menu,
+#app-screen.dm-mode #channel-scroll,
+#app-screen.dm-mode #member-sidebar,
+#app-screen.dm-mode #toggle-members-btn { display: none !important; }
+.dm-sidebar-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px 4px 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.02em; }
+.dm-sidebar-head .icon-btn { width: 24px; height: 24px; }
+.dm-sidebar-head .icon-btn svg { width: 16px; height: 16px; }
+.dm-row { cursor: pointer; }
+.dm-row.active { background: var(--sidebar-active); }
+.dm-row.active .member-name { color: var(--text-strong); }
+.dm-row.unread .member-name { color: #fff; font-weight: 600; }
+.unread-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-left: auto; flex-shrink: 0; }
+.member-row.clickable { cursor: pointer; }
+.msg-author.clickable { cursor: pointer; }
+.msg-author.clickable:hover { text-decoration: underline; }
+.dm-user-list { max-height: 340px; overflow-y: auto; margin-top: 10px; }
+#channel-header-icon .avatar { margin-right: 4px; }
 .rail-add { color: var(--green); }
 .rail-add:hover { background: var(--green); color: #fff; border-radius: 16px; }
 .rail-add svg { width: 24px; height: 24px; }
