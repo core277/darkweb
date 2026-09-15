@@ -41,7 +41,21 @@ const ICONS = {
   crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>',
   menu: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>',
+  emoji: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm3.5-9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>',
 };
+
+const EMOJI_GROUPS = [
+  ["Smileys", "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 🥲 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🫡 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 🥸 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾"],
+  ["Gestures & hearts", "👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 💪 🫶 👀 👁️ 🧠 🦷 🦴 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💣 💬 💤"],
+  ["Animals & nature", "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🕷️ 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦀 🐡 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🐘 🦛 🦏 🐪 🦒 🦘 🐄 🐎 🐖 🐑 🐐 🦌 🐕 🐈 🐓 🕊️ 🐇 🦝 🦨 🦦 🦥 🐀 🌵 🎄 🌲 🌳 🌴 🌱 🌿 ☘️ 🍀 🍁 🍄 💐 🌷 🌹 🌺 🌸 🌼 🌻 🌞 🌝 🌛 🌚 🌕 🌙 ⭐ 🌟 ✨ ⚡ ☄️ 🔥 🌈 ☀️ ⛅ ☁️ 🌧️ ⛈️ ❄️ ☃️ ⛄ 🌊"],
+  ["Food & drink", "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🌽 🥕 🧄 🧅 🥔 🍠 🥐 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🌮 🌯 🥙 🧆 🥗 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🍤 🍙 🍚 🍘 🥠 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🌰 🥜 🍯 🥛 🍼 ☕ 🍵 🧃 🥤 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉"],
+  ["Activities", "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🏓 🏸 🏒 🥍 🏏 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🛹 🛼 🛷 ⛸️ 🥌 🎿 ⛷️ 🏂 🏋️ 🤸 🤺 🤾 🏌️ 🏇 🧘 🏄 🏊 🤽 🚣 🧗 🚴 🏆 🥇 🥈 🥉 🏅 🎖️ 🎫 🎪 🎭 🎨 🎬 🎤 🎧 🎼 🎹 🥁 🎷 🎺 🎸 🪕 🎻 🎲 ♟️ 🎯 🎳 🎮 🕹️ 🧩"],
+  ["Travel & places", "🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🏍️ 🛵 🚲 🛴 🚨 🚔 🚡 🚠 🚃 🚄 🚅 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️ 💺 🛰️ 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ ⛽ 🚧 🚦 🚥 🗺️ 🗿 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏜️ 🌋 ⛰️ 🏔️ 🗻 🏕️ ⛺ 🏠 🏡 🏘️ 🏚️ 🏗️ 🏭 🏢 🏬 🏣 🏤 🏥 🏦 🏨 🏪 🏫 🏩 💒 🏛️ ⛪ 🕌 🕍 🛕 🕋"],
+  ["Objects", "⌚ 📱 💻 ⌨️ 🖥️ 🖨️ 🖱️ 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽️ 🎞️ 📞 ☎️ 📟 📠 📺 📻 🎙️ ⏰ ⏳ 📡 🔋 🔌 💡 🔦 🕯️ 🧯 💸 💵 💰 💳 💎 ⚖️ 🔧 🔨 ⚒️ 🛠️ ⛏️ 🔩 ⚙️ 🧱 ⛓️ 🧲 🔫 🧨 🪓 🔪 🗡️ ⚔️ 🛡️ 🚬 ⚰️ 🏺 🔮 📿 🧿 💈 🔭 🔬 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡️ 🧹 🧺 🧻 🚽 🚿 🛁 🧼 🪥 🧽 🧴 🛎️ 🔑 🗝️ 🚪 🪑 🛋️ 🛏️ 🧸 🖼️ 🛍️ 🛒 🎁 🎈 🎏 🎀 🎊 🎉 🪄 🎎 🏮 🎐 ✉️ 📦 📫 📮 📜 📃 📑 📊 📈 📉 📆 📅 🗓️ 📇 🗃️ 📋 📁 📂 🗂️ 📰 📓 📔 📒 📕 📗 📘 📙 📚 📖 🔖 🧷 🔗 📎 🖇️ 📐 📏 🧮 📌 📍 ✂️ 🖊️ 🖋️ ✒️ 🖌️ 🖍️ 📝 ✏️ 🔍 🔎 🔏 🔐 🔒 🔓"],
+  ["Symbols & flags", "✅ ❌ ❓ ❗ ‼️ ⁉️ 💯 🔞 📵 🚫 ⛔ 🚭 ♻️ ✳️ ❇️ 🆗 🆒 🆕 🆓 🆙 🆖 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ⚠️ 🔰 ⚜️ 🔱 📛 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ 🟫 🔶 🔷 🔸 🔹 🔺 🔻 💠 🔘 🔳 🔲 ▶️ ⏸️ ⏯️ ⏹️ ⏺️ ⏭️ ⏮️ ⏩ ⏪ 🔀 🔁 🔂 🔼 🔽 ⬆️ ⬇️ ⬅️ ➡️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ 🔃 🔄 🔙 🔚 🔛 🔜 🔝 ➕ ➖ ➗ ✖️ ♾️ 💲 💱 ™️ ©️ ®️ 🏁 🚩 🎌 🏴 🏳️ 🏳️‍🌈 🏴‍☠️ 🇮🇪 🇬🇧 🇺🇸 🇨🇦 🇦🇺 🇩🇪 🇫🇷 🇪🇸 🇮🇹 🇵🇱 🇯🇵 🇰🇷 🇧🇷 🇲🇽 🇮🇳"],
+];
+const RECENT_EMOJI_KEY = "darkweb:recentEmoji";
+const EMOJI_ONLY_RE = /^(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|‍|️|\s)+$/u;
 
 const TEMPLATE = `
 <div id="root">
@@ -147,6 +161,15 @@ const TEMPLATE = `
           <div class="mention-title">Members</div>
           <div id="mention-list"></div>
         </div>
+        <div id="picker" hidden>
+          <div class="picker-head">
+            <button class="picker-tab active" data-picker="emoji">Emoji</button>
+            <button class="picker-tab" data-picker="gif">GIFs</button>
+            <input id="picker-search" placeholder="Search Tenor" autocomplete="off" hidden />
+          </div>
+          <div id="picker-emoji" class="picker-body"></div>
+          <div id="picker-gif" class="picker-body" hidden></div>
+        </div>
         <div id="image-preview" hidden>
           <img id="image-preview-img" alt="" />
           <button id="image-preview-remove" class="icon-btn" title="Remove">${ICONS.close}</button>
@@ -155,6 +178,8 @@ const TEMPLATE = `
           <button id="attach-btn" class="icon-btn attach" title="Upload image">${ICONS.plus}</button>
           <input type="file" id="image-input" accept="image/*" hidden />
           <input id="message-input" placeholder="Message" autocomplete="off" />
+          <button id="gif-btn" class="icon-btn gif-chip" title="GIFs">GIF</button>
+          <button id="emoji-btn" class="icon-btn" title="Emoji">${ICONS.emoji}</button>
           <button id="send-btn" class="icon-btn" title="Send">${ICONS.send}</button>
         </div>
       </div>
@@ -317,10 +342,12 @@ const TEMPLATE = `
   } catch (e) {
     console.error("Dark Web: failed to load styles.css", e);
   }
-  const [{ firebaseConfig }, { VoiceManager }] = await Promise.all([
+  const [configModule, { VoiceManager }] = await Promise.all([
     import(new URL("./firebase-config.js" + bust, import.meta.url).href),
     import(new URL("./lib/webrtc.js" + bust, import.meta.url).href),
   ]);
+  const firebaseConfig = configModule.firebaseConfig;
+  const tenorApiKey = (configModule.tenorApiKey || "").trim();
   const styleEl = document.createElement("style");
   styleEl.textContent = css;
   shadow.appendChild(styleEl);
@@ -1419,20 +1446,22 @@ const TEMPLATE = `
       }
       if (m.text) {
         const text = document.createElement("div");
-        text.className = "msg-text";
+        text.className = "msg-text" + (EMOJI_ONLY_RE.test(m.text) && Array.from(m.text.trim()).length <= 12 ? " jumbo" : "");
         const { mentionsMe } = renderRichText(text, m.text);
         if (mentionsMe || (Array.isArray(m.mentions) && me && (m.mentions.includes(me.uid) || m.mentions.includes("everyone")))) {
           row.classList.add("mentioned");
         }
         body.appendChild(text);
       }
-      if (m.imageData) {
+      const imageSrc = m.imageData || m.gifUrl;
+      if (imageSrc) {
         const img = document.createElement("img");
         img.className = "msg-image";
-        img.src = m.imageData;
-        img.alt = "attachment";
+        img.src = imageSrc;
+        img.alt = m.gifUrl ? "GIF" : "attachment";
+        img.loading = "lazy";
         img.addEventListener("click", () => {
-          $("#lightbox-img").src = m.imageData;
+          $("#lightbox-img").src = imageSrc;
           openModal("lightbox");
         });
         body.appendChild(img);
@@ -1641,6 +1670,7 @@ const TEMPLATE = `
     const text = input.value.trim();
     if ((!text && !pendingImage) || !currentServer || !currentTextChannel || !me) return;
     closeMentionPopup();
+    closePicker();
     const payload = {
       text,
       uid: me.uid,
@@ -1654,6 +1684,178 @@ const TEMPLATE = `
     clearPendingImage();
     try {
       await addDoc(messagesCol(), payload);
+    } catch (e) {
+      alert("Couldn't send: " + e.message);
+    }
+  }
+
+  // ---------- emoji & GIF picker ----------
+  const picker = $("#picker");
+  let pickerMode = "emoji";
+  let gifTimer = null;
+  let gifRequestId = 0;
+
+  function recentEmoji() {
+    try {
+      return JSON.parse(safeGet(RECENT_EMOJI_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+  function rememberEmoji(emoji) {
+    const list = [emoji].concat(recentEmoji().filter((e) => e !== emoji)).slice(0, 24);
+    safeSet(RECENT_EMOJI_KEY, JSON.stringify(list));
+  }
+
+  function insertAtCaret(text) {
+    const input = $("#message-input");
+    const start = input.selectionStart == null ? input.value.length : input.selectionStart;
+    const end = input.selectionEnd == null ? start : input.selectionEnd;
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    const pos = start + text.length;
+    input.setSelectionRange(pos, pos);
+    input.focus();
+  }
+
+  function renderEmojiPicker() {
+    const box = $("#picker-emoji");
+    box.innerHTML = "";
+    const groups = [];
+    const recent = recentEmoji();
+    if (recent.length) groups.push(["Recently used", recent]);
+    EMOJI_GROUPS.forEach(([name, str]) => groups.push([name, str.split(/\s+/).filter(Boolean)]));
+    groups.forEach(([name, list]) => {
+      const h = document.createElement("div");
+      h.className = "picker-section";
+      h.textContent = name;
+      box.appendChild(h);
+      const grid = document.createElement("div");
+      grid.className = "emoji-grid";
+      list.forEach((emoji) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "emoji-btn";
+        b.textContent = emoji;
+        b.addEventListener("mousedown", (e) => e.preventDefault());
+        b.addEventListener("click", () => {
+          insertAtCaret(emoji);
+          rememberEmoji(emoji);
+        });
+        grid.appendChild(b);
+      });
+      box.appendChild(grid);
+    });
+  }
+
+  function showPicker(mode) {
+    pickerMode = mode;
+    $$(".picker-tab").forEach((t) => t.classList.toggle("active", t.dataset.picker === mode));
+    $("#picker-emoji").hidden = mode !== "emoji";
+    $("#picker-gif").hidden = mode !== "gif";
+    $("#picker-search").hidden = mode !== "gif";
+    closeMentionPopup();
+    picker.hidden = false;
+    if (mode === "emoji") renderEmojiPicker();
+    else {
+      $("#picker-search").focus();
+      loadGifs($("#picker-search").value.trim());
+    }
+  }
+  function closePicker() {
+    picker.hidden = true;
+  }
+  function togglePicker(mode) {
+    if (!picker.hidden && pickerMode === mode) closePicker();
+    else showPicker(mode);
+  }
+
+  $$(".picker-tab").forEach((t) => t.addEventListener("click", () => showPicker(t.dataset.picker)));
+  $("#emoji-btn").addEventListener("click", () => togglePicker("emoji"));
+  $("#gif-btn").addEventListener("click", () => togglePicker("gif"));
+  $("#picker-search").addEventListener("input", () => {
+    clearTimeout(gifTimer);
+    gifTimer = setTimeout(() => loadGifs($("#picker-search").value.trim()), 350);
+  });
+  $("#picker-search").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePicker();
+  });
+  shadow.addEventListener("click", (e) => {
+    if (picker.hidden) return;
+    const path = e.composedPath();
+    if (!path.includes(picker) && !path.includes($("#emoji-btn")) && !path.includes($("#gif-btn"))) closePicker();
+  });
+
+  async function loadGifs(q) {
+    const box = $("#picker-gif");
+    if (!tenorApiKey) {
+      box.innerHTML =
+        '<div class="picker-note">GIF search needs a free <strong>Tenor API key</strong>. ' +
+        "Whoever runs this Dark Web instance adds it to <code>firebase-config.js</code> (see the README).</div>";
+      return;
+    }
+    const id = ++gifRequestId;
+    box.innerHTML = '<div class="picker-note">Loading…</div>';
+    const params = new URLSearchParams({
+      key: tenorApiKey,
+      client_key: "darkweb",
+      limit: "30",
+      media_filter: "tinygif,mediumgif,gif",
+      contentfilter: "medium",
+    });
+    let url = "https://tenor.googleapis.com/v2/featured?" + params;
+    if (q) {
+      params.set("q", q);
+      url = "https://tenor.googleapis.com/v2/search?" + params;
+    }
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Tenor returned " + res.status);
+      const data = await res.json();
+      if (id !== gifRequestId) return;
+      box.innerHTML = "";
+      const results = data.results || [];
+      if (!results.length) {
+        box.innerHTML = '<div class="picker-note">No GIFs found.</div>';
+        return;
+      }
+      const grid = document.createElement("div");
+      grid.className = "gif-grid";
+      results.forEach((r) => {
+        const f = r.media_formats || {};
+        const preview = (f.tinygif || f.mediumgif || f.gif || {}).url;
+        const full = (f.mediumgif || f.gif || f.tinygif || {}).url;
+        if (!preview || !full) return;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "gif-item";
+        const img = document.createElement("img");
+        img.src = preview;
+        img.alt = r.content_description || "GIF";
+        img.loading = "lazy";
+        b.appendChild(img);
+        b.addEventListener("click", () => sendGif(full));
+        grid.appendChild(b);
+      });
+      box.appendChild(grid);
+    } catch (e) {
+      if (id !== gifRequestId) return;
+      box.innerHTML = '<div class="picker-note">Couldn\'t load GIFs: ' + e.message + "</div>";
+    }
+  }
+
+  async function sendGif(url) {
+    if (!currentServer || !currentTextChannel || !me) return;
+    closePicker();
+    try {
+      await addDoc(messagesCol(), {
+        text: "",
+        gifUrl: url,
+        uid: me.uid,
+        displayName: me.displayName,
+        avatarEmoji: me.avatarEmoji,
+        mentions: [],
+        createdAt: serverTimestamp(),
+      });
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }

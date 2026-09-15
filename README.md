@@ -101,6 +101,19 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   "Deleted User" — the Firebase Auth login itself can only be removed from the Firebase console
   (Authentication → Users), since browsers can't call the Admin SDK.
 
+### 7. (Optional) Turn on GIF search
+
+The **GIF** button in the message bar searches [Tenor](https://tenor.com). It needs a free API key:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/), pick your Firebase project
+   (it's a Google Cloud project too).
+2. **APIs & Services → Library** → search **Tenor API** → **Enable**.
+3. **APIs & Services → Credentials → Create credentials → API key** → copy it.
+4. Paste it into `tenorApiKey` in [`docs/firebase-config.js`](docs/firebase-config.js), commit, push.
+
+Until then the GIF tab just explains that it's not set up. Emoji work with no setup — the smiley
+button opens a picker with recently-used, and emoji-only messages render large.
+
 ## Local testing (no iPad needed)
 
 ```bash

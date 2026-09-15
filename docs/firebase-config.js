@@ -10,3 +10,7 @@ export const firebaseConfig = {
   messagingSenderId: "466569421019",
   appId: "1:466569421019:web:bc1bca064ddafb560c6cfe",
 };
+
+// Optional: enables GIF search in chat. Free key from Google Cloud Console
+// (enable the "Tenor API", then Credentials -> Create API key). Leave empty to disable.
+export const tenorApiKey = "";
