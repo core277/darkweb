@@ -11,9 +11,15 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
 - `app.js` builds the entire app as a full-screen overlay inside a **Shadow DOM**, so its styles never
   clash with whatever page it was launched from.
 - **Firebase** (Firestore + Email/Password Auth) is the live backend: real accounts (email + password),
-  chat messages, channel list, user profiles/roles, and voice-call signaling all sync in real time.
-  GitHub hosts 100% of the app's code — Firebase only holds live data that a static site can't push on
-  its own.
+  chat messages, channel list, user profiles/roles, presence, and voice-call signaling all sync in real
+  time. GitHub hosts 100% of the app's code — Firebase only holds live data that a static site can't
+  push on its own.
+- **Images** (chat attachments and profile pictures) are resized in the browser and stored inline in
+  Firestore as compressed JPEG data URLs — no Firebase Storage bucket needed, which keeps the project
+  on the free plan. Chat images are capped at ~700 KB after compression; profile pictures are cropped
+  to a 128px square.
+- **Accounts**: sign up / log in with email + password, reset password by email, change display name,
+  status, avatar (uploaded picture or emoji fallback), and password from User Settings.
 - **Voice calls** use WebRTC directly between participants (mesh, up to 6 per voice channel), with
   Firestore documents used to exchange the offer/answer/ICE handshake instead of a dedicated signaling
   server.
