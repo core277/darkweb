@@ -20,6 +20,10 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   to a 128px square.
 - **Accounts**: sign up / log in with email + password, reset password by email, change display name,
   status, avatar (uploaded picture or emoji fallback), and password from User Settings.
+- **Servers**: every user can create servers and invite people with a code. Data lives under
+  `servers/{code}` with `channels`, `messages`, and `voiceChannels` nested beneath it; `memberIds`
+  on the server document drives access in `firestore.rules`. Site admins can read and manage all of
+  them.
 - **Voice calls** use WebRTC directly between participants (mesh, up to 6 per voice channel), with
   Firestore documents used to exchange the offer/answer/ICE handshake instead of a dedicated signaling
   server.
@@ -33,6 +37,7 @@ docs/                     <- published via GitHub Pages
   firebase-config.js        your Firebase project's web config (fill in, see below)
   styles.css                app styling (loaded into the Shadow DOM)
   lib/webrtc.js             WebRTC mesh voice calling + Firestore signaling
+  logo.svg                  the lightning-bolt logo (also inlined in app.js)
   bookmarklet.txt           raw bookmarklet source, for reference
 firestore.rules            Firestore security rules (paste into the Firebase console)
 ```
@@ -75,12 +80,20 @@ create a normal bookmark first, then overwrite its URL).
    document).
 2. In the Firebase console, go to **Firestore → users**, find the document with your display name,
    and change its `role` field from `"member"` to `"admin"`.
-3. Reopen Dark Web — the **Admin** button now appears in the title bar.
+3. Reopen Dark Web — a shield icon now appears in the bottom-left user panel.
 
-### 6. Create your first channels
+### 6. Create a server
 
-Use the Admin panel (**Admin → Channels → Add**) to create at least one `text` channel before
-chatting — the app has no default channels out of the box.
+Anyone can create their own server: hit the green **+** in the left rail → **Create**, give it a
+name, and you get a `#general` text channel and a `voice` channel automatically. The server's
+8-character **invite code** (Server name ▾ → **Invite People**) is what friends enter under
+**+ → Join** to get in.
+
+- **Server owners** manage their own server: Server name ▾ → **Server Settings** (rename, channels,
+  kick members, delete server).
+- **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
+  a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
+  the **Site Admin** panel (all servers, all users, promote/ban).
 
 ## Local testing (no iPad needed)
 

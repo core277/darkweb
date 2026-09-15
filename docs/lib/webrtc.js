@@ -8,6 +8,8 @@ const MAX_PARTICIPANTS = 6;
 // Mesh WebRTC voice channel, signaled through Firestore documents (offer/answer/ICE
 // candidates) instead of a dedicated signaling server. The peer with the lexicographically
 // smaller uid always initiates the connection to a given peer, so each pair only opens once.
+// `join()` takes the Firestore path segments of the voice channel document, e.g.
+// ["servers", serverId, "voiceChannels", channelId].
 export class VoiceManager {
   constructor(db, uid, profile, { onParticipantsChange, onRemoteStream, onError } = {}) {
     this.db = db;
@@ -17,19 +19,27 @@ export class VoiceManager {
     this.onParticipantsChange = onParticipantsChange || (() => {});
     this.onRemoteStream = onRemoteStream || (() => {});
     this.onError = onError || (() => {});
-    this.channelId = null;
+    this.base = null;
     this.localStream = null;
     this.peers = new Map();
     this.unsubParticipants = null;
     this.unsubSignals = null;
   }
 
-  async join(channelId) {
-    if (this.channelId) await this.leave();
+  _participants() {
+    return collection(this.db, ...this.base, "participants");
+  }
+  _signals() {
+    return collection(this.db, ...this.base, "signals");
+  }
 
-    const participantsRef = collection(this.db, "voiceChannels", channelId, "participants");
-    const existing = await getDocs(participantsRef);
+  async join(pathSegments) {
+    if (this.base) await this.leave();
+    this.base = pathSegments;
+
+    const existing = await getDocs(this._participants());
     if (existing.size >= MAX_PARTICIPANTS) {
+      this.base = null;
       this.onError("Voice channel is full (max " + MAX_PARTICIPANTS + ").");
       return false;
     }
@@ -37,39 +47,34 @@ export class VoiceManager {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
+      this.base = null;
       this.onError("Microphone permission denied or unavailable.");
       return false;
     }
 
-    this.channelId = channelId;
-    await setDoc(doc(this.db, "voiceChannels", channelId, "participants", this.uid), {
+    await setDoc(doc(this.db, ...this.base, "participants", this.uid), {
       displayName: this.displayName,
       avatarEmoji: this.avatarEmoji,
       joinedAt: serverTimestamp(),
     });
 
-    this.unsubParticipants = onSnapshot(participantsRef, (qs) => {
+    this.unsubParticipants = onSnapshot(this._participants(), (qs) => {
       const others = qs.docs.filter((d) => d.id !== this.uid).map((d) => d.id);
       this.onParticipantsChange(qs.docs.map((d) => ({ uid: d.id, ...d.data() })));
-
       others.forEach((otherUid) => {
-        if (!this.peers.has(otherUid) && this.uid < otherUid) {
-          this._connectTo(otherUid);
-        }
+        if (!this.peers.has(otherUid) && this.uid < otherUid) this._connectTo(otherUid);
       });
       for (const existingUid of Array.from(this.peers.keys())) {
         if (!others.includes(existingUid)) this._closePeer(existingUid);
       }
     });
 
-    const signalsRef = collection(this.db, "voiceChannels", channelId, "signals");
-    const myIncoming = query(signalsRef, where("to", "==", this.uid));
+    const myIncoming = query(this._signals(), where("to", "==", this.uid));
     this.unsubSignals = onSnapshot(myIncoming, (qs) => {
       qs.docChanges().forEach(async (change) => {
         if (change.type !== "added") return;
-        const data = change.doc.data();
         try {
-          await this._handleSignal(data);
+          await this._handleSignal(change.doc.data());
         } finally {
           deleteDoc(change.doc.ref).catch(() => {});
         }
@@ -84,7 +89,7 @@ export class VoiceManager {
     this.peers.set(otherUid, pc);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await addDoc(collection(this.db, "voiceChannels", this.channelId, "signals"), {
+    await addDoc(this._signals(), {
       from: this.uid,
       to: otherUid,
       type: "offer",
@@ -97,8 +102,8 @@ export class VoiceManager {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream));
     pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        addDoc(collection(this.db, "voiceChannels", this.channelId, "signals"), {
+      if (e.candidate && this.base) {
+        addDoc(this._signals(), {
           from: this.uid,
           to: otherUid,
           type: "candidate",
@@ -122,7 +127,7 @@ export class VoiceManager {
       await pc.setRemoteDescription(JSON.parse(payload));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await addDoc(collection(this.db, "voiceChannels", this.channelId, "signals"), {
+      await addDoc(this._signals(), {
         from: this.uid,
         to: from,
         type: "answer",
@@ -155,17 +160,19 @@ export class VoiceManager {
   }
 
   async leave() {
-    if (!this.channelId) return;
+    if (!this.base) return;
+    const base = this.base;
+    this.base = null;
     if (this.unsubParticipants) this.unsubParticipants();
     if (this.unsubSignals) this.unsubSignals();
+    this.unsubParticipants = this.unsubSignals = null;
     for (const uid of Array.from(this.peers.keys())) this._closePeer(uid);
     if (this.localStream) this.localStream.getTracks().forEach((t) => t.stop());
+    this.localStream = null;
     try {
-      await deleteDoc(doc(this.db, "voiceChannels", this.channelId, "participants", this.uid));
+      await deleteDoc(doc(this.db, ...base, "participants", this.uid));
     } catch (e) {
       // channel may already be gone
     }
-    this.channelId = null;
-    this.localStream = null;
   }
 }

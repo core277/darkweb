@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
-  onSnapshot, query, orderBy, limit, serverTimestamp,
+  onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const DEFAULT_EMOJI = "🙂";
@@ -19,8 +19,11 @@ const HEARTBEAT_MS = 60000;
 const GROUP_WINDOW_MS = 7 * 60 * 1000;
 const MESSAGE_LIMIT = 100;
 const MAX_IMAGE_BYTES = 700000;
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 const ICONS = {
+  // CSS-mask based so it works inside the Shadow DOM (SVG url(#gradient) refs don't resolve there).
+  logo: '<span class="dw-logo"><span class="dw-logo-inner"></span></span>',
   hash: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.88 21l1.02-6H3l.34-2h3.9l.68-4H4.1l.34-2h3.9L9.36 3h2.03l-1.02 6h4l1.02-6h2.03l-1.02 6H20l-.34 2h-3.9l-.68 4h3.82l-.34 2h-3.9l-1.02 6h-2.03l1.02-6h-4l-1.02 6H5.88zm3.4-8h4l.68-4h-4l-.68 4z"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a5 5 0 01-10 0H5a7 7 0 006 6.92V21h2v-3.08A7 7 0 0019 11h-2z"/></svg>',
@@ -36,6 +39,7 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
   crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>',
   menu: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>',
 };
 
 const TEMPLATE = `
@@ -43,6 +47,7 @@ const TEMPLATE = `
   <div id="login-screen" class="screen">
     <div class="auth-card">
       <button class="icon-btn corner-close" id="login-close-btn" title="Close">${ICONS.close}</button>
+      <div class="auth-logo">${ICONS.logo}</div>
       <div class="auth-brand">DARK WEB</div>
       <h1 id="auth-title">Welcome back!</h1>
       <p id="auth-subtitle" class="auth-sub">We're so excited to see you again!</p>
@@ -68,18 +73,25 @@ const TEMPLATE = `
     <div class="auth-card">
       <button class="icon-btn corner-close" id="banned-close-btn" title="Close">${ICONS.close}</button>
       <h1>Access denied</h1>
-      <p class="auth-sub">You have been banned from this server.</p>
+      <p class="auth-sub">You have been banned from Dark Web.</p>
     </div>
   </div>
 
   <div id="app-screen" hidden>
     <nav id="server-rail">
-      <div class="rail-icon" title="Dark Web">DW</div>
+      <div class="rail-home" title="Dark Web">${ICONS.logo}</div>
       <div class="rail-sep"></div>
+      <div id="server-list"></div>
+      <button id="add-server-btn" class="rail-icon rail-add" title="Add a server">${ICONS.plus}</button>
     </nav>
 
     <aside id="channel-sidebar">
-      <div id="server-header">Dark Web</div>
+      <button id="server-header"><span id="server-name">Dark Web</span><span class="chev">${ICONS.chevron}</span></button>
+      <div id="server-menu" class="dropdown" hidden>
+        <button id="menu-invite">Invite People</button>
+        <button id="menu-settings" hidden>Server Settings</button>
+        <button id="menu-leave" class="danger" hidden>Leave Server</button>
+      </div>
       <div id="channel-scroll">
         <div class="category">
           <span class="category-name">Text Channels</span>
@@ -107,7 +119,7 @@ const TEMPLATE = `
         </div>
         <div class="user-panel-actions">
           <button id="mute-btn" class="icon-btn" title="Mute">${ICONS.mic}</button>
-          <button id="admin-btn" class="icon-btn" title="Admin panel" hidden>${ICONS.shield}</button>
+          <button id="admin-btn" class="icon-btn" title="Site admin" hidden>${ICONS.shield}</button>
           <button id="settings-btn" class="icon-btn" title="User Settings">${ICONS.gear}</button>
         </div>
       </div>
@@ -116,7 +128,7 @@ const TEMPLATE = `
     <main id="main-pane">
       <header id="channel-header">
         <button id="sidebar-toggle-btn" class="icon-btn sidebar-toggle" title="Channels">${ICONS.menu}</button>
-        <span class="hash-icon">${ICONS.hash}</span>
+        <span class="hash-icon" id="channel-header-icon">${ICONS.hash}</span>
         <span id="channel-header-name">Welcome</span>
         <div class="header-actions">
           <button id="toggle-members-btn" class="icon-btn" title="Toggle member list">${ICONS.members}</button>
@@ -153,7 +165,6 @@ const TEMPLATE = `
       </nav>
       <div class="settings-body">
         <button class="icon-btn corner-close" id="settings-close-btn" title="Close">${ICONS.close}</button>
-
         <section id="settings-tab-profile" class="settings-section">
           <h2>Profile</h2>
           <div class="pfp-row">
@@ -171,12 +182,9 @@ const TEMPLATE = `
           <input id="profile-name" maxlength="24" autocomplete="off" />
           <label class="field-label">Custom status</label>
           <input id="profile-status" maxlength="60" autocomplete="off" placeholder="What's on your mind?" />
-          <div class="row-end">
-            <button id="profile-save-btn" class="btn btn-primary">Save changes</button>
-          </div>
+          <div class="row-end"><button id="profile-save-btn" class="btn btn-primary">Save changes</button></div>
           <div id="profile-msg" class="form-msg"></div>
         </section>
-
         <section id="settings-tab-account" class="settings-section" hidden>
           <h2>Account</h2>
           <label class="field-label">Email</label>
@@ -188,23 +196,65 @@ const TEMPLATE = `
           <input id="pw-new" type="password" autocomplete="new-password" />
           <label class="field-label">Confirm new password</label>
           <input id="pw-confirm" type="password" autocomplete="new-password" />
-          <div class="row-end">
-            <button id="pw-save-btn" class="btn btn-primary">Update password</button>
-          </div>
+          <div class="row-end"><button id="pw-save-btn" class="btn btn-primary">Update password</button></div>
           <div id="pw-msg" class="form-msg"></div>
         </section>
       </div>
     </div>
   </div>
 
-  <div id="admin-modal" class="modal" hidden>
-    <div class="modal-card admin-card">
-      <div class="modal-header"><span>Admin Panel</span><button id="admin-close-btn" class="icon-btn" title="Close">${ICONS.close}</button></div>
+  <div id="add-server-modal" class="modal" hidden>
+    <div class="modal-card small-card">
+      <div class="modal-header"><span>Add a server</span><button id="add-server-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
       <div class="modal-tabs">
-        <button class="tab-btn active" data-tab="channels">Channels</button>
-        <button class="tab-btn" data-tab="users">Users</button>
+        <button class="tab-btn active" data-atab="create">Create</button>
+        <button class="tab-btn" data-atab="join">Join</button>
       </div>
-      <div id="admin-tab-channels" class="admin-tab">
+      <div id="atab-create" class="admin-tab">
+        <label class="field-label">Server name</label>
+        <input id="create-server-name" maxlength="40" placeholder="My cool server" />
+        <div class="row-end"><button id="create-server-btn" class="btn btn-primary">Create Server</button></div>
+      </div>
+      <div id="atab-join" class="admin-tab" hidden>
+        <label class="field-label">Invite code</label>
+        <input id="join-server-code" maxlength="12" placeholder="e.g. 7KQ2M9XZ" autocomplete="off" />
+        <div class="row-end"><button id="join-server-btn" class="btn btn-primary">Join Server</button></div>
+      </div>
+      <div id="add-server-msg" class="form-msg modal-foot-msg"></div>
+    </div>
+  </div>
+
+  <div id="invite-modal" class="modal" hidden>
+    <div class="modal-card small-card">
+      <div class="modal-header"><span>Invite people</span><button id="invite-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="admin-tab">
+        <div class="hint">Share this code. Friends enter it under <b>+ &rarr; Join</b> in the left rail.</div>
+        <div class="invite-row"><code id="invite-code"></code><button id="invite-copy" class="btn btn-primary btn-sm">Copy</button></div>
+        <div id="invite-msg" class="form-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="server-settings-modal" class="modal" hidden>
+    <div class="modal-card admin-card">
+      <div class="modal-header"><span id="server-settings-title">Server Settings</span><button id="server-settings-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="modal-tabs">
+        <button class="tab-btn active" data-stab="overview">Overview</button>
+        <button class="tab-btn" data-stab="channels">Channels</button>
+        <button class="tab-btn" data-stab="members">Members</button>
+      </div>
+      <div id="stab-overview" class="admin-tab">
+        <label class="field-label">Server name</label>
+        <input id="server-rename-input" maxlength="40" />
+        <div class="row-end"><button id="server-rename-btn" class="btn btn-primary">Save</button></div>
+        <label class="field-label">Invite code</label>
+        <div class="invite-row"><code id="settings-invite-code"></code></div>
+        <h3>Danger zone</h3>
+        <div class="hint">Deleting a server removes it for everyone. This can't be undone.</div>
+        <div class="row-end"><button id="server-delete-btn" class="btn btn-danger">Delete Server</button></div>
+        <div id="server-settings-msg" class="form-msg"></div>
+      </div>
+      <div id="stab-channels" class="admin-tab" hidden>
         <form id="new-channel-form">
           <input id="new-channel-name" placeholder="new-channel" autocomplete="off" maxlength="32" />
           <select id="new-channel-type">
@@ -215,9 +265,19 @@ const TEMPLATE = `
         </form>
         <div id="admin-channel-list"></div>
       </div>
-      <div id="admin-tab-users" class="admin-tab" hidden>
-        <div id="admin-user-list"></div>
+      <div id="stab-members" class="admin-tab" hidden><div id="server-member-list"></div></div>
+    </div>
+  </div>
+
+  <div id="admin-modal" class="modal" hidden>
+    <div class="modal-card admin-card">
+      <div class="modal-header"><span>Site Admin</span><button id="admin-close-btn" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="modal-tabs">
+        <button class="tab-btn active" data-tab="servers">All Servers</button>
+        <button class="tab-btn" data-tab="users">All Users</button>
       </div>
+      <div id="admin-tab-servers" class="admin-tab"><div id="admin-server-list"></div></div>
+      <div id="admin-tab-users" class="admin-tab" hidden><div id="admin-user-list"></div></div>
     </div>
   </div>
 
@@ -275,10 +335,15 @@ const TEMPLATE = `
 
   // ---------- state ----------
   let me = null;
+  let lastRole = null;
   let usersCache = new Map();
+  let servers = [];
+  let currentServer = null;
+  let pendingSelectServer = null;
   let channelsCache = [];
   let currentTextChannel = null;
   let currentVoiceChannel = null;
+  let currentVoiceServer = null;
   let currentVoice = null;
   let muted = false;
   let pendingImage = null;
@@ -289,6 +354,7 @@ const TEMPLATE = `
   const voiceParticipants = new Map();
   const voiceListeners = new Map();
   const remoteAudioEls = new Map();
+  let unsubServers = null;
   let unsubMessages = null;
   let unsubChannels = null;
   let unsubUsers = null;
@@ -297,6 +363,10 @@ const TEMPLATE = `
   let membersRefreshTimer = null;
 
   // ---------- helpers ----------
+  const safeGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } };
+  const ts = (t) => (t && t.toDate ? t.toDate().getTime() : Date.now());
+
   function avatarColor(uid) {
     let h = 0;
     for (const c of uid || "x") h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -323,9 +393,24 @@ const TEMPLATE = `
     return el;
   }
 
-  function profileFor(uid, fallback) {
-    return usersCache.get(uid) || fallback || {};
+  function serverInitials(name) {
+    return (name || "?")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join("");
   }
+
+  function genCode() {
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    return Array.from(bytes).map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  }
+
+  const profileFor = (uid, fallback) => usersCache.get(uid) || fallback || {};
+  const isGlobalAdmin = () => me && me.role === "admin";
+  const canManage = (s) => !!(me && s && (isGlobalAdmin() || s.ownerUid === me.uid));
+  const isMemberOf = (s) => !!(me && s && (s.memberIds || []).includes(me.uid));
 
   function isOnline(u) {
     const t = u && u.lastActive && u.lastActive.toDate ? u.lastActive.toDate().getTime() : 0;
@@ -381,7 +466,7 @@ const TEMPLATE = `
   function setMsg(sel, text, kind) {
     const el = $(sel);
     el.textContent = text || "";
-    el.className = "form-msg" + (kind ? " " + kind : "");
+    el.className = el.className.replace(/\b(error|ok)\b/g, "").trim() + (kind ? " " + kind : "");
   }
 
   function friendlyAuthError(e) {
@@ -403,34 +488,38 @@ const TEMPLATE = `
       $("#" + s).hidden = s !== id;
     });
   }
-
-  function openModal(id) {
-    $("#" + id).hidden = false;
-  }
-  function closeModal(id) {
-    $("#" + id).hidden = true;
-  }
+  const openModal = (id) => { $("#" + id).hidden = false; };
+  const closeModal = (id) => { $("#" + id).hidden = true; };
   function closeAllModals() {
-    let closed = false;
-    $$(".modal").forEach((m) => {
-      if (!m.hidden) {
-        m.hidden = true;
-        closed = true;
-      }
+    $$(".modal").forEach((m) => (m.hidden = true));
+    $("#server-menu").hidden = true;
+  }
+  function bindTabs(attr, prefix) {
+    $$(".tab-btn[" + attr + "]").forEach((btn) => {
+      btn.addEventListener("click", () => showTabs(attr, prefix, btn.getAttribute(attr)));
     });
-    return closed;
+  }
+  function showTabs(attr, prefix, tab) {
+    $$(".tab-btn[" + attr + "]").forEach((b) => b.classList.toggle("active", b.getAttribute(attr) === tab));
+    $$("[id^='" + prefix + "']").forEach((panel) => (panel.hidden = panel.id !== prefix + tab));
   }
 
   // ---------- teardown ----------
-  function stopSessionListeners() {
+  function teardownServerListeners() {
     if (unsubMessages) unsubMessages();
     if (unsubChannels) unsubChannels();
-    if (unsubUsers) unsubUsers();
-    if (unsubMe) unsubMe();
-    unsubMessages = unsubChannels = unsubUsers = unsubMe = null;
+    unsubMessages = unsubChannels = null;
     voiceListeners.forEach((fn) => fn());
     voiceListeners.clear();
     voiceParticipants.clear();
+  }
+
+  function stopSessionListeners() {
+    teardownServerListeners();
+    if (unsubServers) unsubServers();
+    if (unsubUsers) unsubUsers();
+    if (unsubMe) unsubMe();
+    unsubServers = unsubUsers = unsubMe = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (membersRefreshTimer) clearInterval(membersRefreshTimer);
     heartbeatTimer = membersRefreshTimer = null;
@@ -440,10 +529,12 @@ const TEMPLATE = `
     if (currentVoice) await currentVoice.leave();
     currentVoice = null;
     currentVoiceChannel = null;
+    currentVoiceServer = null;
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
     $("#voice-panel").hidden = true;
     renderChannels();
+    renderUserPanel();
   }
 
   async function closeApp() {
@@ -467,6 +558,10 @@ const TEMPLATE = `
       if (e.target === m) m.hidden = true;
     });
   });
+  shadow.addEventListener("click", (e) => {
+    const path = e.composedPath();
+    if (!path.includes($("#server-header")) && !path.includes($("#server-menu"))) $("#server-menu").hidden = true;
+  });
 
   // ---------- auth ----------
   let authMode = "login";
@@ -476,7 +571,7 @@ const TEMPLATE = `
     $("#signup-fields").hidden = !signup;
     $("#forgot-password-row").hidden = signup;
     $("#auth-title").textContent = signup ? "Create an account" : "Welcome back!";
-    $("#auth-subtitle").textContent = signup ? "Join the Dark Web server." : "We're so excited to see you again!";
+    $("#auth-subtitle").textContent = signup ? "Pick a name and you're in." : "We're so excited to see you again!";
     $("#auth-submit-btn").textContent = signup ? "Continue" : "Log In";
     $("#auth-switch-text").textContent = signup ? "Already have an account?" : "Need an account?";
     $("#auth-switch-link").textContent = signup ? "Log In" : "Register";
@@ -488,7 +583,7 @@ const TEMPLATE = `
   });
   $("#auth-submit-btn").addEventListener("click", handleAuthSubmit);
   $("#auth-password").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") handleAuthSubmit();
+    if (e.key === "Enter" || e.keyCode === 13) handleAuthSubmit();
   });
 
   async function handleAuthSubmit() {
@@ -537,8 +632,11 @@ const TEMPLATE = `
     if (!user) {
       stopSessionListeners();
       me = null;
-      currentTextChannel = null;
+      lastRole = null;
+      currentServer = null;
+      servers = [];
       channelsCache = [];
+      currentTextChannel = null;
       usersCache = new Map();
       showScreen("login-screen");
       return;
@@ -577,16 +675,18 @@ const TEMPLATE = `
         avatarUrl: data.avatarUrl || null,
         status: data.status || "",
       };
-      $("#admin-btn").hidden = me.role !== "admin";
-      $$(".category-add").forEach((b) => (b.hidden = me.role !== "admin"));
+      $("#admin-btn").hidden = !isGlobalAdmin();
       renderUserPanel();
       if (firstLoad) {
         showScreen("app-screen");
         syncLayoutForWidth();
         startHeartbeat(userRef);
         subscribeUsers();
-        subscribeChannels();
-      } else {
+      }
+      if (firstLoad || me.role !== lastRole) subscribeServers();
+      lastRole = me.role;
+      if (!firstLoad) {
+        renderServerHeader();
         renderChannels();
         renderMessages();
       }
@@ -603,7 +703,7 @@ const TEMPLATE = `
     }, HEARTBEAT_MS);
   }
 
-  // ---------- users / members ----------
+  // ---------- users ----------
   function subscribeUsers() {
     if (unsubUsers) unsubUsers();
     unsubUsers = onSnapshot(collection(db, "users"), (qs) => {
@@ -613,6 +713,8 @@ const TEMPLATE = `
       renderMessages();
       renderChannels();
       renderAdminUserList();
+      renderAdminServerList();
+      renderServerMemberList();
     });
   }
 
@@ -620,8 +722,7 @@ const TEMPLATE = `
     if (!me) return;
     const av = $("#user-panel-avatar");
     av.innerHTML = "";
-    const liveProfile = { ...me, lastActive: { toDate: () => new Date() } };
-    av.appendChild(makeAvatar(liveProfile, me.uid, "avatar-32", true));
+    av.appendChild(makeAvatar({ ...me, lastActive: { toDate: () => new Date() } }, me.uid, "avatar-32", true));
     $("#user-panel-name").textContent = me.displayName;
     $("#user-panel-status").textContent = me.status || (currentVoiceChannel ? "In voice" : "Online");
   }
@@ -629,14 +730,14 @@ const TEMPLATE = `
   function renderMembers() {
     const list = $("#member-list");
     list.innerHTML = "";
-    const users = Array.from(usersCache.entries())
-      .map(([uid, u]) => ({ uid, ...u }))
-      .filter((u) => !u.banned);
-    const sortFn = (a, b) =>
-      (a.role === "admin" ? 0 : 1) - (b.role === "admin" ? 0 : 1) ||
-      (a.displayName || "").localeCompare(b.displayName || "");
-    const online = users.filter(isOnline).sort(sortFn);
-    const offline = users.filter((u) => !isOnline(u)).sort(sortFn);
+    if (!currentServer) return;
+    const members = (currentServer.memberIds || [])
+      .map((uid) => ({ uid, ...(usersCache.get(uid) || {}) }))
+      .filter((u) => u.displayName && !u.banned);
+    const rank = (u) => (u.uid === currentServer.ownerUid ? 0 : u.role === "admin" ? 1 : 2);
+    const sortFn = (a, b) => rank(a) - rank(b) || (a.displayName || "").localeCompare(b.displayName || "");
+    const online = members.filter(isOnline).sort(sortFn);
+    const offline = members.filter((u) => !isOnline(u)).sort(sortFn);
 
     const section = (title, arr, dim) => {
       if (!arr.length) return;
@@ -652,14 +753,9 @@ const TEMPLATE = `
         text.className = "member-text";
         const name = document.createElement("div");
         name.className = "member-name";
-        name.textContent = u.displayName || "Unknown";
-        if (u.role === "admin") {
-          const crown = document.createElement("span");
-          crown.className = "crown";
-          crown.title = "Admin";
-          crown.innerHTML = ICONS.crown;
-          name.appendChild(crown);
-        }
+        name.textContent = u.displayName;
+        if (u.uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
+        else if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
         text.appendChild(name);
         if (u.status) {
           const st = document.createElement("div");
@@ -673,7 +769,15 @@ const TEMPLATE = `
     };
     section("Online", online, false);
     section("Offline", offline, true);
-    if (!users.length) list.innerHTML = '<div class="empty-hint small">No members yet</div>';
+    if (!members.length) list.innerHTML = '<div class="empty-hint small">No members yet</div>';
+  }
+
+  function badgeIcon(svg, cls, title) {
+    const s = document.createElement("span");
+    s.className = cls;
+    s.title = title;
+    s.innerHTML = svg;
+    return s;
   }
 
   let lastWide = null;
@@ -686,40 +790,341 @@ const TEMPLATE = `
   }
   window.addEventListener("resize", syncLayoutForWidth);
 
-  $("#toggle-members-btn").addEventListener("click", () => {
-    $("#app-screen").classList.toggle("members-open");
-  });
-  $("#sidebar-toggle-btn").addEventListener("click", () => {
-    $("#app-screen").classList.toggle("sidebar-open");
-  });
+  $("#toggle-members-btn").addEventListener("click", () => $("#app-screen").classList.toggle("members-open"));
+  $("#sidebar-toggle-btn").addEventListener("click", () => $("#app-screen").classList.toggle("sidebar-open"));
 
-  // ---------- channels ----------
-  function subscribeChannels() {
-    if (unsubChannels) unsubChannels();
-    unsubChannels = onSnapshot(query(collection(db, "channels"), orderBy("createdAt")), (qs) => {
-      channelsCache = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
-      syncVoiceListeners();
-      renderChannels();
-      renderAdminChannelList();
-      const stillExists = currentTextChannel && channelsCache.some((c) => c.id === currentTextChannel.id);
-      if (!stillExists) {
-        currentTextChannel = null;
-        const firstText = channelsCache.find((c) => c.type === "text");
-        if (firstText) selectTextChannel(firstText);
-        else showNoChannels();
-      } else {
-        const fresh = channelsCache.find((c) => c.id === currentTextChannel.id);
-        if (fresh.name !== currentTextChannel.name) selectTextChannel(fresh);
+  // ---------- servers ----------
+  function subscribeServers() {
+    if (unsubServers) unsubServers();
+    const base = collection(db, "servers");
+    const q = isGlobalAdmin() ? base : query(base, where("memberIds", "array-contains", me.uid));
+    unsubServers = onSnapshot(
+      q,
+      (qs) => {
+        servers = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+        servers.sort((a, b) => ts(a.createdAt) - ts(b.createdAt) || (a.name || "").localeCompare(b.name || ""));
+        renderRail();
+        renderAdminServerList();
+        let target = null;
+        if (pendingSelectServer) {
+          target = servers.find((s) => s.id === pendingSelectServer);
+          if (target) pendingSelectServer = null;
+        }
+        if (!target && currentServer) target = servers.find((s) => s.id === currentServer.id);
+        if (!target) {
+          const last = safeGet("darkweb:lastServer");
+          target = servers.find((s) => s.id === last) || servers[0] || null;
+        }
+        if (target) selectServer(target);
+        else showNoServer();
+      },
+      (err) => {
+        console.error("Dark Web: servers listener", err);
+        showLoadError(err);
       }
-      if (currentVoiceChannel && !channelsCache.some((c) => c.id === currentVoiceChannel)) leaveVoice();
+    );
+  }
+
+  function showLoadError(err) {
+    showNoServer();
+    const denied = err && err.code === "permission-denied";
+    $("#message-list").innerHTML =
+      '<div class="empty-hint"><div class="empty-title">Can\'t load servers</div>' +
+      (denied
+        ? "Firestore denied access. If you run this Dark Web instance, publish the latest <strong>firestore.rules</strong> from the repo in the Firebase console, then relaunch."
+        : "Something went wrong talking to Firebase: " + (err && err.message ? err.message : "unknown error")) +
+      "</div>";
+  }
+
+  function renderRail() {
+    const list = $("#server-list");
+    list.innerHTML = "";
+    servers.forEach((s) => {
+      const el = document.createElement("div");
+      el.className =
+        "rail-icon" +
+        (currentServer && currentServer.id === s.id ? " active" : "") +
+        (isMemberOf(s) ? "" : " guest");
+      el.title = s.name + (isMemberOf(s) ? "" : " (viewing as admin)");
+      el.textContent = serverInitials(s.name);
+      el.style.setProperty("--accent", avatarColor(s.id));
+      el.addEventListener("click", () => selectServer(s));
+      list.appendChild(el);
     });
   }
 
+  function selectServer(s) {
+    const same = currentServer && currentServer.id === s.id;
+    currentServer = s;
+    safeSet("darkweb:lastServer", s.id);
+    renderRail();
+    renderServerHeader();
+    renderMembers();
+    renderServerMemberList();
+    if (same) {
+      renderChannels();
+      renderMessages();
+      return;
+    }
+    teardownServerListeners();
+    currentTextChannel = null;
+    channelsCache = [];
+    lastMessages = [];
+    $("#app-screen").classList.remove("sidebar-open");
+    subscribeChannels();
+  }
+
+  function showNoServer() {
+    currentServer = null;
+    teardownServerListeners();
+    currentTextChannel = null;
+    channelsCache = [];
+    lastMessages = [];
+    renderRail();
+    renderServerHeader();
+    renderChannels();
+    renderMembers();
+    $("#channel-header-name").textContent = "Welcome";
+    $("#composer").hidden = true;
+    const list = $("#message-list");
+    list.innerHTML =
+      '<div class="empty-hint"><div class="empty-logo">' + ICONS.logo + "</div>" +
+      '<div class="empty-title">Welcome to Dark Web</div>' +
+      "You're not in any servers yet. Create your own or join a friend's with an invite code." +
+      '<div class="empty-actions"><button class="btn btn-primary" id="noserver-create">Create a server</button>' +
+      '<button class="btn btn-secondary" id="noserver-join">Join with a code</button></div></div>';
+    list.querySelector("#noserver-create").addEventListener("click", () => openAddServer("create"));
+    list.querySelector("#noserver-join").addEventListener("click", () => openAddServer("join"));
+  }
+
+  function renderServerHeader() {
+    const s = currentServer;
+    $("#server-name").textContent = s ? s.name : "Dark Web";
+    $("#server-header").disabled = !s;
+    $("#menu-settings").hidden = !canManage(s);
+    $("#menu-leave").hidden = !(s && isMemberOf(s) && s.ownerUid !== (me && me.uid));
+    $$(".category-add").forEach((b) => (b.hidden = !canManage(s)));
+  }
+
+  $("#server-header").addEventListener("click", () => {
+    if (!currentServer) return;
+    $("#server-menu").hidden = !$("#server-menu").hidden;
+  });
+  $("#menu-invite").addEventListener("click", () => {
+    $("#server-menu").hidden = true;
+    $("#invite-code").textContent = currentServer.id;
+    setMsg("#invite-msg", "");
+    openModal("invite-modal");
+  });
+  $("#invite-close").addEventListener("click", () => closeModal("invite-modal"));
+  $("#invite-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(currentServer.id);
+      setMsg("#invite-msg", "Copied!", "ok");
+    } catch (e) {
+      setMsg("#invite-msg", "Couldn't copy automatically - select the code and copy it.", "error");
+    }
+  });
+  $("#menu-leave").addEventListener("click", async () => {
+    $("#server-menu").hidden = true;
+    if (!currentServer || !confirm("Leave " + currentServer.name + "?")) return;
+    if (currentVoiceServer === currentServer.id) await leaveVoice();
+    try {
+      await updateDoc(doc(db, "servers", currentServer.id), { memberIds: arrayRemove(me.uid) });
+    } catch (e) {
+      alert("Couldn't leave: " + e.message);
+    }
+  });
+  $("#menu-settings").addEventListener("click", () => {
+    $("#server-menu").hidden = true;
+    openServerSettings("overview");
+  });
+
+  // add / join
+  bindTabs("data-atab", "atab-");
+  function openAddServer(tab) {
+    $("#create-server-name").value = "";
+    $("#join-server-code").value = "";
+    setMsg("#add-server-msg", "");
+    showTabs("data-atab", "atab-", tab);
+    openModal("add-server-modal");
+    $(tab === "create" ? "#create-server-name" : "#join-server-code").focus();
+  }
+  $("#add-server-btn").addEventListener("click", () => openAddServer("create"));
+  $("#add-server-close").addEventListener("click", () => closeModal("add-server-modal"));
+
+  $("#create-server-btn").addEventListener("click", async () => {
+    const name = $("#create-server-name").value.trim();
+    if (!name) {
+      setMsg("#add-server-msg", "Give your server a name.", "error");
+      return;
+    }
+    $("#create-server-btn").disabled = true;
+    try {
+      const id = genCode();
+      pendingSelectServer = id;
+      await setDoc(doc(db, "servers", id), {
+        name,
+        ownerUid: me.uid,
+        memberIds: [me.uid],
+        createdAt: serverTimestamp(),
+      });
+      await addDoc(collection(db, "servers", id, "channels"), { name: "general", type: "text", createdAt: serverTimestamp() });
+      await addDoc(collection(db, "servers", id, "channels"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+      closeModal("add-server-modal");
+    } catch (e) {
+      pendingSelectServer = null;
+      setMsg("#add-server-msg", "Couldn't create server: " + e.message, "error");
+    } finally {
+      $("#create-server-btn").disabled = false;
+    }
+  });
+
+  $("#join-server-btn").addEventListener("click", async () => {
+    const code = $("#join-server-code").value.trim().toUpperCase();
+    if (!code) {
+      setMsg("#add-server-msg", "Enter an invite code.", "error");
+      return;
+    }
+    $("#join-server-btn").disabled = true;
+    try {
+      const snap = await getDoc(doc(db, "servers", code));
+      if (!snap.exists()) {
+        setMsg("#add-server-msg", "No server found with that code.", "error");
+        return;
+      }
+      if ((snap.data().memberIds || []).includes(me.uid)) {
+        pendingSelectServer = code;
+        closeModal("add-server-modal");
+        selectServer({ id: snap.id, ...snap.data() });
+        return;
+      }
+      pendingSelectServer = code;
+      await updateDoc(doc(db, "servers", code), { memberIds: arrayUnion(me.uid) });
+      closeModal("add-server-modal");
+    } catch (e) {
+      pendingSelectServer = null;
+      setMsg("#add-server-msg", "Couldn't join: " + e.message, "error");
+    } finally {
+      $("#join-server-btn").disabled = false;
+    }
+  });
+  $("#join-server-code").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.keyCode === 13) $("#join-server-btn").click();
+  });
+  $("#create-server-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.keyCode === 13) $("#create-server-btn").click();
+  });
+
+  // server settings (owner / site admin)
+  bindTabs("data-stab", "stab-");
+  function openServerSettings(tab) {
+    if (!currentServer) return;
+    $("#server-settings-title").textContent = currentServer.name + " — Settings";
+    $("#server-rename-input").value = currentServer.name;
+    $("#settings-invite-code").textContent = currentServer.id;
+    setMsg("#server-settings-msg", "");
+    renderAdminChannelList();
+    renderServerMemberList();
+    showTabs("data-stab", "stab-", tab);
+    openModal("server-settings-modal");
+  }
+  $("#server-settings-close").addEventListener("click", () => closeModal("server-settings-modal"));
+  $("#server-rename-btn").addEventListener("click", async () => {
+    const name = $("#server-rename-input").value.trim();
+    if (!name) return;
+    try {
+      await updateDoc(doc(db, "servers", currentServer.id), { name });
+      setMsg("#server-settings-msg", "Saved.", "ok");
+    } catch (e) {
+      setMsg("#server-settings-msg", e.message, "error");
+    }
+  });
+  $("#server-delete-btn").addEventListener("click", async () => {
+    if (!currentServer) return;
+    if (!confirm('Delete "' + currentServer.name + '" for everyone? This cannot be undone.')) return;
+    if (currentVoiceServer === currentServer.id) await leaveVoice();
+    try {
+      await deleteDoc(doc(db, "servers", currentServer.id));
+      closeModal("server-settings-modal");
+    } catch (e) {
+      setMsg("#server-settings-msg", e.message, "error");
+    }
+  });
+
+  function renderServerMemberList() {
+    const list = $("#server-member-list");
+    if (!list || !currentServer) return;
+    list.innerHTML = "";
+    (currentServer.memberIds || []).forEach((uid) => {
+      const u = usersCache.get(uid);
+      if (!u) return;
+      const row = document.createElement("div");
+      row.className = "admin-row";
+      const label = document.createElement("span");
+      label.className = "admin-label";
+      label.appendChild(makeAvatar(u, uid, "avatar-24", false));
+      const name = document.createElement("span");
+      name.textContent = u.displayName;
+      label.appendChild(name);
+      if (uid === currentServer.ownerUid) label.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
+      const actions = document.createElement("span");
+      if (uid !== currentServer.ownerUid && uid !== me.uid) {
+        const kick = document.createElement("button");
+        kick.className = "btn btn-danger btn-sm";
+        kick.textContent = "Kick";
+        kick.addEventListener("click", async () => {
+          if (confirm("Kick " + u.displayName + "?")) {
+            await updateDoc(doc(db, "servers", currentServer.id), { memberIds: arrayRemove(uid) });
+          }
+        });
+        actions.appendChild(kick);
+      }
+      row.appendChild(label);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+  }
+
+  // ---------- channels ----------
+  const channelsCol = () => collection(db, "servers", currentServer.id, "channels");
+
+  function subscribeChannels() {
+    if (unsubChannels) unsubChannels();
+    if (!currentServer) return;
+    const sid = currentServer.id;
+    unsubChannels = onSnapshot(
+      query(channelsCol(), orderBy("createdAt")),
+      (qs) => {
+        if (!currentServer || currentServer.id !== sid) return;
+        channelsCache = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+        syncVoiceListeners();
+        renderChannels();
+        renderAdminChannelList();
+        const stillExists = currentTextChannel && channelsCache.some((c) => c.id === currentTextChannel.id);
+        if (!stillExists) {
+          currentTextChannel = null;
+          const firstText = channelsCache.find((c) => c.type === "text");
+          if (firstText) selectTextChannel(firstText);
+          else showNoChannels();
+        } else {
+          const fresh = channelsCache.find((c) => c.id === currentTextChannel.id);
+          if (fresh.name !== currentTextChannel.name) selectTextChannel(fresh);
+        }
+        if (currentVoiceServer === sid && currentVoiceChannel && !channelsCache.some((c) => c.id === currentVoiceChannel)) {
+          leaveVoice();
+        }
+      },
+      (err) => console.error("Dark Web: channels listener", err)
+    );
+  }
+
   function syncVoiceListeners() {
+    const sid = currentServer.id;
     const voiceIds = channelsCache.filter((c) => c.type === "voice").map((c) => c.id);
     voiceIds.forEach((id) => {
       if (voiceListeners.has(id)) return;
-      const unsub = onSnapshot(collection(db, "voiceChannels", id, "participants"), (qs) => {
+      const unsub = onSnapshot(collection(db, "servers", sid, "voiceChannels", id, "participants"), (qs) => {
         voiceParticipants.set(id, qs.docs.map((d) => ({ uid: d.id, ...d.data() })));
         renderChannels();
       });
@@ -737,9 +1142,10 @@ const TEMPLATE = `
   function renderChannels() {
     const textList = $("#text-channel-list");
     const voiceList = $("#voice-channel-list");
-    if (!textList || !voiceList) return;
     textList.innerHTML = "";
     voiceList.innerHTML = "";
+    $$(".category").forEach((c) => (c.hidden = !currentServer));
+    if (!currentServer) return;
     const text = channelsCache.filter((c) => c.type === "text");
     const voice = channelsCache.filter((c) => c.type === "voice");
     if (!text.length) textList.innerHTML = '<div class="empty-hint small">No text channels</div>';
@@ -757,7 +1163,8 @@ const TEMPLATE = `
     voice.forEach((c) => {
       const wrap = document.createElement("div");
       const el = document.createElement("div");
-      el.className = "channel-item" + (currentVoiceChannel === c.id ? " active" : "");
+      const active = currentVoiceServer === currentServer.id && currentVoiceChannel === c.id;
+      el.className = "channel-item" + (active ? " active" : "");
       el.innerHTML = '<span class="ch-icon">' + ICONS.speaker + '</span><span class="ch-name"></span>';
       el.querySelector(".ch-name").textContent = c.name;
       el.addEventListener("click", () => joinVoiceChannel(c));
@@ -785,8 +1192,7 @@ const TEMPLATE = `
   $$(".category-add").forEach((btn) => {
     btn.addEventListener("click", () => {
       $("#new-channel-type").value = btn.dataset.type;
-      showAdminTab("channels");
-      openModal("admin-modal");
+      openServerSettings("channels");
       $("#new-channel-name").focus();
     });
   });
@@ -796,19 +1202,20 @@ const TEMPLATE = `
     lastMessages = [];
     if (unsubMessages) unsubMessages();
     unsubMessages = null;
-    $("#channel-header-name").textContent = "Welcome";
+    $("#channel-header-name").textContent = currentServer ? currentServer.name : "Welcome";
     $("#composer").hidden = true;
-    const isAdmin = me && me.role === "admin";
     $("#message-list").innerHTML =
       '<div class="empty-hint"><div class="empty-title">No channels yet</div>' +
-      (isAdmin
+      (canManage(currentServer)
         ? "Hit the <strong>+</strong> next to a category in the sidebar to create the first one."
-        : "Ask a server admin to create one.") +
+        : "Ask the server owner to create one.") +
       "</div>";
     renderChannels();
   }
 
   // ---------- messages ----------
+  const messagesCol = () => collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
+
   function selectTextChannel(ch) {
     const switching = !currentTextChannel || currentTextChannel.id !== ch.id;
     currentTextChannel = ch;
@@ -820,11 +1227,16 @@ const TEMPLATE = `
     if (!switching) return;
     messagesFirstRender = true;
     if (unsubMessages) unsubMessages();
-    const msgsRef = collection(db, "channels", ch.id, "messages");
-    unsubMessages = onSnapshot(query(msgsRef, orderBy("createdAt"), limit(MESSAGE_LIMIT)), (qs) => {
-      lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
-      renderMessages();
-    });
+    const sid = currentServer.id;
+    unsubMessages = onSnapshot(
+      query(messagesCol(), orderBy("createdAt"), limit(MESSAGE_LIMIT)),
+      (qs) => {
+        if (!currentServer || currentServer.id !== sid || !currentTextChannel || currentTextChannel.id !== ch.id) return;
+        lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
+        renderMessages();
+      },
+      (err) => console.error("Dark Web: messages listener", err)
+    );
   }
 
   function welcomeBlock(name) {
@@ -841,7 +1253,7 @@ const TEMPLATE = `
 
   function renderMessages() {
     const list = $("#message-list");
-    if (!currentTextChannel) return;
+    if (!currentServer || !currentTextChannel) return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
     list.innerHTML = "";
     if (lastMessages.length < MESSAGE_LIMIT) list.appendChild(welcomeBlock(currentTextChannel.name));
@@ -854,7 +1266,6 @@ const TEMPLATE = `
 
       const row = document.createElement("div");
       row.className = "msg" + (cont ? " cont" : "");
-
       const gutter = document.createElement("div");
       gutter.className = "msg-gutter";
       if (cont) {
@@ -875,10 +1286,11 @@ const TEMPLATE = `
         const author = document.createElement("span");
         author.className = "msg-author";
         author.textContent = prof.displayName || m.displayName || "Unknown";
-        if (prof.role === "admin") {
+        const badgeText = m.uid === currentServer.ownerUid ? "OWNER" : prof.role === "admin" ? "ADMIN" : null;
+        if (badgeText) {
           const badge = document.createElement("span");
           badge.className = "role-badge";
-          badge.textContent = "ADMIN";
+          badge.textContent = badgeText;
           author.appendChild(badge);
         }
         const time = document.createElement("span");
@@ -907,15 +1319,14 @@ const TEMPLATE = `
       }
       row.appendChild(body);
 
-      const canDelete = me && (me.role === "admin" || me.uid === m.uid);
-      if (canDelete) {
+      if (me && (canManage(currentServer) || me.uid === m.uid)) {
         const actions = document.createElement("div");
         actions.className = "msg-actions";
         const del = document.createElement("button");
         del.className = "icon-btn danger";
         del.title = "Delete message";
         del.innerHTML = ICONS.trash;
-        del.addEventListener("click", () => deleteDoc(doc(db, "channels", currentTextChannel.id, "messages", id)));
+        del.addEventListener("click", () => deleteDoc(doc(messagesCol(), id)));
         actions.appendChild(del);
         row.appendChild(actions);
       }
@@ -938,7 +1349,7 @@ const TEMPLATE = `
   async function sendMessage() {
     const input = $("#message-input");
     const text = input.value.trim();
-    if ((!text && !pendingImage) || !currentTextChannel || !me) return;
+    if ((!text && !pendingImage) || !currentServer || !currentTextChannel || !me) return;
     const payload = {
       text,
       uid: me.uid,
@@ -950,7 +1361,7 @@ const TEMPLATE = `
     input.value = "";
     clearPendingImage();
     try {
-      await addDoc(collection(db, "channels", currentTextChannel.id, "messages"), payload);
+      await addDoc(messagesCol(), payload);
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -979,8 +1390,9 @@ const TEMPLATE = `
 
   // ---------- voice ----------
   async function joinVoiceChannel(ch) {
-    if (!me) return;
-    if (currentVoiceChannel === ch.id) return;
+    if (!me || !currentServer) return;
+    const sid = currentServer.id;
+    if (currentVoiceServer === sid && currentVoiceChannel === ch.id) return;
     if (currentVoice) await currentVoice.leave();
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
@@ -988,23 +1400,21 @@ const TEMPLATE = `
       onRemoteStream: attachRemoteAudio,
       onError: (msg) => alert(msg),
     });
-    const ok = await currentVoice.join(ch.id);
+    const ok = await currentVoice.join(["servers", sid, "voiceChannels", ch.id]);
     if (!ok) {
       currentVoice = null;
       return;
     }
     currentVoice.setMuted(muted);
     currentVoiceChannel = ch.id;
+    currentVoiceServer = sid;
     $("#voice-panel").hidden = false;
-    $("#voice-panel-channel").textContent = ch.name;
+    $("#voice-panel-channel").textContent = ch.name + " / " + currentServer.name;
     renderChannels();
     renderUserPanel();
   }
 
-  $("#leave-voice-btn").addEventListener("click", async () => {
-    await leaveVoice();
-    renderUserPanel();
-  });
+  $("#leave-voice-btn").addEventListener("click", leaveVoice);
 
   function updateMuteButton() {
     const btn = $("#mute-btn");
@@ -1037,7 +1447,7 @@ const TEMPLATE = `
     el.srcObject = stream;
   }
 
-  // ---------- settings ----------
+  // ---------- user settings ----------
   const avatarGrid = $("#avatar-grid");
   AVATAR_CHOICES.forEach((emoji) => {
     const btn = document.createElement("button");
@@ -1058,9 +1468,7 @@ const TEMPLATE = `
     $("#settings-tab-profile").hidden = tab !== "profile";
     $("#settings-tab-account").hidden = tab !== "account";
   }
-  $$(".settings-tab[data-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => showSettingsTab(btn.dataset.tab));
-  });
+  $$(".settings-tab[data-tab]").forEach((btn) => btn.addEventListener("click", () => showSettingsTab(btn.dataset.tab)));
 
   function renderPfpPreview() {
     const box = $("#pfp-preview");
@@ -1073,9 +1481,7 @@ const TEMPLATE = `
     if (!me) return;
     pendingPfp = undefined;
     selectedAvatarEmoji = me.avatarEmoji;
-    avatarGrid.querySelectorAll(".avatar-choice").forEach((b) => {
-      b.classList.toggle("selected", b.textContent === selectedAvatarEmoji);
-    });
+    avatarGrid.querySelectorAll(".avatar-choice").forEach((b) => b.classList.toggle("selected", b.textContent === selectedAvatarEmoji));
     $("#profile-name").value = me.displayName;
     $("#profile-status").value = me.status;
     $("#account-email").value = me.email || "";
@@ -1129,7 +1535,7 @@ const TEMPLATE = `
   $("#pw-save-btn").addEventListener("click", async () => {
     const current = $("#pw-current").value;
     const next = $("#pw-new").value;
-    const confirm = $("#pw-confirm").value;
+    const confirmPw = $("#pw-confirm").value;
     setMsg("#pw-msg", "");
     if (!current || !next) {
       setMsg("#pw-msg", "Fill in your current and new password.", "error");
@@ -1139,7 +1545,7 @@ const TEMPLATE = `
       setMsg("#pw-msg", "New password must be at least 6 characters.", "error");
       return;
     }
-    if (next !== confirm) {
+    if (next !== confirmPw) {
       setMsg("#pw-msg", "New passwords don't match.", "error");
       return;
     }
@@ -1160,24 +1566,11 @@ const TEMPLATE = `
     await auth.signOut();
   });
 
-  // ---------- admin ----------
-  function showAdminTab(tab) {
-    $$(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-    $("#admin-tab-channels").hidden = tab !== "channels";
-    $("#admin-tab-users").hidden = tab !== "users";
-  }
-  $$(".tab-btn").forEach((btn) => btn.addEventListener("click", () => showAdminTab(btn.dataset.tab)));
-  $("#admin-btn").addEventListener("click", () => {
-    showAdminTab("channels");
-    renderAdminChannelList();
-    renderAdminUserList();
-    openModal("admin-modal");
-  });
-  $("#admin-close-btn").addEventListener("click", () => closeModal("admin-modal"));
-
+  // ---------- channel admin (server settings) ----------
   function renderAdminChannelList() {
     const list = $("#admin-channel-list");
     list.innerHTML = "";
+    if (!currentServer) return;
     if (!channelsCache.length) {
       list.innerHTML = '<div class="empty-hint small">No channels yet. Create one above.</div>';
       return;
@@ -1195,14 +1588,14 @@ const TEMPLATE = `
       renameBtn.textContent = "Rename";
       renameBtn.addEventListener("click", async () => {
         const name = prompt("New name", c.name);
-        if (name && name.trim()) await updateDoc(doc(db, "channels", c.id), { name: name.trim() });
+        if (name && name.trim()) await updateDoc(doc(channelsCol(), c.id), { name: name.trim() });
       });
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-danger btn-sm";
       delBtn.textContent = "Delete";
       delBtn.addEventListener("click", async () => {
-        if (confirm('Delete #' + c.name + "? Messages in it will no longer be visible.")) {
-          await deleteDoc(doc(db, "channels", c.id));
+        if (confirm("Delete #" + c.name + "? Messages in it will no longer be visible.")) {
+          await deleteDoc(doc(channelsCol(), c.id));
         }
       });
       actions.appendChild(renameBtn);
@@ -1215,20 +1608,82 @@ const TEMPLATE = `
 
   $("#new-channel-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!currentServer) return;
     const name = $("#new-channel-name").value.trim().toLowerCase().replace(/\s+/g, "-");
     const type = $("#new-channel-type").value;
     if (!name) return;
     try {
-      await addDoc(collection(db, "channels"), { name, type, createdAt: serverTimestamp() });
+      await addDoc(channelsCol(), { name, type, createdAt: serverTimestamp() });
       $("#new-channel-name").value = "";
     } catch (err) {
       alert("Couldn't create channel: " + err.message);
     }
   });
 
+  // ---------- site admin ----------
+  bindTabs("data-tab", "admin-tab-");
+  $("#admin-btn").addEventListener("click", () => {
+    renderAdminServerList();
+    renderAdminUserList();
+    showTabs("data-tab", "admin-tab-", "servers");
+    openModal("admin-modal");
+  });
+  $("#admin-close-btn").addEventListener("click", () => closeModal("admin-modal"));
+
+  function renderAdminServerList() {
+    const list = $("#admin-server-list");
+    if (!list || !isGlobalAdmin()) return;
+    list.innerHTML = "";
+    if (!servers.length) {
+      list.innerHTML = '<div class="empty-hint small">No servers exist yet.</div>';
+      return;
+    }
+    servers.forEach((s) => {
+      const row = document.createElement("div");
+      row.className = "admin-row";
+      const label = document.createElement("span");
+      label.className = "admin-label";
+      const icon = document.createElement("span");
+      icon.className = "mini-server";
+      icon.textContent = serverInitials(s.name);
+      icon.style.background = avatarColor(s.id);
+      label.appendChild(icon);
+      const text = document.createElement("span");
+      const owner = usersCache.get(s.ownerUid);
+      text.innerHTML = "<b></b><br><small></small>";
+      text.querySelector("b").textContent = s.name;
+      text.querySelector("small").textContent =
+        (s.memberIds || []).length + " member" + ((s.memberIds || []).length === 1 ? "" : "s") +
+        " · owner: " + (owner ? owner.displayName : "unknown") + " · code " + s.id;
+      label.appendChild(text);
+      const actions = document.createElement("span");
+      const open = document.createElement("button");
+      open.className = "btn btn-secondary btn-sm";
+      open.textContent = "Open";
+      open.addEventListener("click", () => {
+        closeModal("admin-modal");
+        selectServer(s);
+      });
+      const del = document.createElement("button");
+      del.className = "btn btn-danger btn-sm";
+      del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        if (confirm('Delete "' + s.name + '" for everyone?')) {
+          if (currentVoiceServer === s.id) await leaveVoice();
+          await deleteDoc(doc(db, "servers", s.id));
+        }
+      });
+      actions.appendChild(open);
+      actions.appendChild(del);
+      row.appendChild(label);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+  }
+
   function renderAdminUserList() {
     const list = $("#admin-user-list");
-    if (!list || !me || me.role !== "admin") return;
+    if (!list || !isGlobalAdmin()) return;
     list.innerHTML = "";
     const users = Array.from(usersCache.entries()).map(([uid, u]) => ({ uid, ...u }));
     users.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
@@ -1259,9 +1714,7 @@ const TEMPLATE = `
       roleBtn.className = "btn btn-secondary btn-sm";
       roleBtn.textContent = u.role === "admin" ? "Demote" : "Promote";
       roleBtn.disabled = isSelf;
-      roleBtn.addEventListener("click", () =>
-        updateDoc(doc(db, "users", u.uid), { role: u.role === "admin" ? "member" : "admin" })
-      );
+      roleBtn.addEventListener("click", () => updateDoc(doc(db, "users", u.uid), { role: u.role === "admin" ? "member" : "admin" }));
       const banBtn = document.createElement("button");
       banBtn.className = "btn btn-danger btn-sm";
       banBtn.textContent = u.banned ? "Unban" : "Ban";
