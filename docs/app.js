@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
-  onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove,
+  onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const DEFAULT_EMOJI = "🙂";
@@ -845,19 +845,26 @@ const TEMPLATE = `
     );
   }
 
+  // Server doc + default channels commit atomically so the channel listener never races the server.
+  async function createServerWithDefaults(id, name, extra) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "servers", id), {
+      name,
+      ownerUid: me.uid,
+      memberIds: [me.uid],
+      createdAt: serverTimestamp(),
+      ...(extra || {}),
+    });
+    batch.set(doc(collection(db, "servers", id, "channels")), { name: "general", type: "text", createdAt: serverTimestamp() });
+    batch.set(doc(collection(db, "servers", id, "channels")), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+    await batch.commit();
+  }
+
   async function createHome() {
     if (creatingHome || homeServer) return;
     creatingHome = true;
     try {
-      await setDoc(doc(db, "servers", HOME_ID), {
-        name: "Dark Web",
-        ownerUid: me.uid,
-        memberIds: [me.uid],
-        isHome: true,
-        createdAt: serverTimestamp(),
-      });
-      await addDoc(collection(db, "servers", HOME_ID, "channels"), { name: "general", type: "text", createdAt: serverTimestamp() });
-      await addDoc(collection(db, "servers", HOME_ID, "channels"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+      await createServerWithDefaults(HOME_ID, "Dark Web", { isHome: true });
     } catch (e) {
       console.error("Dark Web: couldn't create home server", e);
     } finally {
@@ -1028,14 +1035,7 @@ const TEMPLATE = `
     try {
       const id = genCode();
       pendingSelectServer = id;
-      await setDoc(doc(db, "servers", id), {
-        name,
-        ownerUid: me.uid,
-        memberIds: [me.uid],
-        createdAt: serverTimestamp(),
-      });
-      await addDoc(collection(db, "servers", id, "channels"), { name: "general", type: "text", createdAt: serverTimestamp() });
-      await addDoc(collection(db, "servers", id, "channels"), { name: "voice", type: "voice", createdAt: serverTimestamp() });
+      await createServerWithDefaults(id, name);
       closeModal("add-server-modal");
     } catch (e) {
       pendingSelectServer = null;
@@ -1156,7 +1156,14 @@ const TEMPLATE = `
   // ---------- channels ----------
   const channelsCol = () => collection(db, "servers", currentServer.id, "channels");
 
-  function subscribeChannels() {
+  // A listen can race the write that grants access (server creation, joining); on a
+  // permission error retry a few times before giving up.
+  function retryOnDenied(err, label, retry, attempt) {
+    console.error("Dark Web: " + label + " listener", err);
+    if (err && err.code === "permission-denied" && attempt < 3) setTimeout(() => retry(attempt + 1), 1200);
+  }
+
+  function subscribeChannels(attempt = 0) {
     if (unsubChannels) unsubChannels();
     if (!currentServer) return;
     const sid = currentServer.id;
@@ -1182,7 +1189,9 @@ const TEMPLATE = `
           leaveVoice();
         }
       },
-      (err) => console.error("Dark Web: channels listener", err)
+      (err) => retryOnDenied(err, "channels", (n) => {
+        if (currentServer && currentServer.id === sid) subscribeChannels(n);
+      }, attempt)
     );
   }
 
@@ -1283,8 +1292,8 @@ const TEMPLATE = `
   // ---------- messages ----------
   const messagesCol = () => collection(db, "servers", currentServer.id, "channels", currentTextChannel.id, "messages");
 
-  function selectTextChannel(ch) {
-    const switching = !currentTextChannel || currentTextChannel.id !== ch.id;
+  function selectTextChannel(ch, attempt = 0) {
+    const switching = attempt > 0 || !currentTextChannel || currentTextChannel.id !== ch.id;
     currentTextChannel = ch;
     $("#channel-header-name").textContent = ch.name;
     $("#composer").hidden = false;
@@ -1302,7 +1311,9 @@ const TEMPLATE = `
         lastMessages = qs.docs.map((d) => ({ id: d.id, data: d.data() }));
         renderMessages();
       },
-      (err) => console.error("Dark Web: messages listener", err)
+      (err) => retryOnDenied(err, "messages", (n) => {
+        if (currentServer && currentServer.id === sid && currentTextChannel && currentTextChannel.id === ch.id) selectTextChannel(ch, n);
+      }, attempt)
     );
   }
 
