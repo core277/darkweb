@@ -205,6 +205,16 @@ service cloud.firestore {
         allow delete: if isSignedIn() && resource.data.to == request.auth.uid;
         allow update: if false;
       }
+
+      // Audit log: only visible to whoever can manage the server; anyone who actually has the
+      // permission needed to perform a loggable action can write an entry for it.
+      match /auditLog/{logId} {
+        allow read: if canManage(serverId);
+        allow create: if isNotBanned()
+                      && request.resource.data.actorUid == request.auth.uid
+                      && (canManage(serverId) || hasPerm(serverId, 'manageChannels') || hasPerm(serverId, 'manageMessages'));
+        allow update, delete: if false;
+      }
     }
   }
 }

@@ -392,6 +392,10 @@ svg { width: 20px; height: 20px; display: block; }
 #root #new-channel-cat { width: auto; max-width: 160px; }
 .settings-section h3.first, .admin-tab h3.first { margin-top: 0; }
 .admin-tab h3 { margin: 18px 0 8px; font-size: 15px; font-weight: 600; color: var(--text-strong); }
+.audit-row { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--divider); font-size: 13px; flex-wrap: wrap; }
+.audit-actor { font-weight: 600; color: var(--text-strong); flex-shrink: 0; }
+.audit-detail { color: var(--text); flex: 1; min-width: 140px; }
+.audit-time { color: var(--muted); font-size: 12px; flex-shrink: 0; }
 
 .channel-item {
   display: flex;

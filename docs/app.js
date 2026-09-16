@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  getFirestore, collection, doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, addDoc,
+  getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, deleteField, addDoc,
   onSnapshot, query, where, orderBy, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch, increment,
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -400,6 +400,7 @@ const TEMPLATE = `
         <button class="tab-btn" data-stab="channels">Channels</button>
         <button class="tab-btn" data-stab="roles">Roles</button>
         <button class="tab-btn" data-stab="members">Members</button>
+        <button class="tab-btn" data-stab="audit">Audit Log</button>
       </div>
       <div id="stab-overview" class="admin-tab">
         <label class="field-label">Server icon</label>
@@ -454,6 +455,10 @@ const TEMPLATE = `
         <div id="role-list"></div>
       </div>
       <div id="stab-members" class="admin-tab" hidden><div id="server-member-list"></div></div>
+      <div id="stab-audit" class="admin-tab" hidden>
+        <div class="hint">Who did what in this server, most recent first. Only visible to the owner and site admins.</div>
+        <div id="audit-log-list"></div>
+      </div>
     </div>
   </div>
 
@@ -1529,6 +1534,7 @@ const TEMPLATE = `
       const iconUrl = await readImageFile(file, { maxDim: 128, square: true, quality: 0.85 });
       await updateDoc(doc(db, "servers", currentServer.id), { iconUrl });
       setMsg("#server-settings-msg", "Icon updated.", "ok");
+      logAudit("server_icon_update", "changed the server icon");
     } catch (e) {
       setMsg("#server-settings-msg", e.message, "error");
     }
@@ -1537,6 +1543,7 @@ const TEMPLATE = `
     if (!currentServer) return;
     try {
       await updateDoc(doc(db, "servers", currentServer.id), { iconUrl: deleteField() });
+      logAudit("server_icon_remove", "removed the server icon");
     } catch (e) {
       setMsg("#server-settings-msg", e.message, "error");
     }
@@ -1607,9 +1614,11 @@ const TEMPLATE = `
   }
 
   async function updateRole(id, patch) {
+    const before = serverRoles(currentServer).find((r) => r.id === id);
     const roles = serverRoles(currentServer).map((r) => (r.id === id ? { ...r, ...patch } : r));
     try {
       await saveRoles(roles, currentServer.memberRoles || {});
+      logAudit("role_update", 'updated role "' + (before ? before.name : id) + '"');
     } catch (e) {
       setMsg("#server-settings-msg", e.message, "error");
     }
@@ -1630,6 +1639,7 @@ const TEMPLATE = `
       if (rest.length) memberRoles[uid] = rest;
     });
     await saveRoles(roles, memberRoles);
+    logAudit("role_delete", 'deleted role "' + r.name + '"');
   }
   $("#new-role-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1640,6 +1650,7 @@ const TEMPLATE = `
     try {
       await saveRoles(roles, currentServer.memberRoles || {});
       $("#new-role-name").value = "";
+      logAudit("role_create", 'created role "' + name + '"');
     } catch (err) {
       setMsg("#server-settings-msg", err.message, "error");
     }
@@ -1647,19 +1658,28 @@ const TEMPLATE = `
   async function toggleMemberRole(uid, roleId) {
     const memberRoles = { ...(currentServer.memberRoles || {}) };
     const cur = new Set(memberRoles[uid] || []);
+    const adding = !cur.has(roleId);
     if (cur.has(roleId)) cur.delete(roleId);
     else cur.add(roleId);
     if (cur.size) memberRoles[uid] = Array.from(cur);
     else delete memberRoles[uid];
     await saveRoles(serverRoles(currentServer), memberRoles);
+    const role = serverRoles(currentServer).find((r) => r.id === roleId);
+    const target = usersCache.get(uid);
+    logAudit(
+      adding ? "role_assign" : "role_unassign",
+      (adding ? "gave " : "removed ") + '"' + (role ? role.name : roleId) + '" ' + (adding ? "to " : "from ") + (target ? target.displayName : uid)
+    );
   }
   $("#server-settings-close").addEventListener("click", () => closeModal("server-settings-modal"));
   $("#server-rename-btn").addEventListener("click", async () => {
     const name = $("#server-rename-input").value.trim();
     if (!name) return;
+    const oldName = currentServer.name;
     try {
       await updateDoc(doc(db, "servers", currentServer.id), { name });
       setMsg("#server-settings-msg", "Saved.", "ok");
+      if (name !== oldName) logAudit("server_rename", 'renamed the server "' + oldName + '" → "' + name + '"');
     } catch (e) {
       setMsg("#server-settings-msg", e.message, "error");
     }
@@ -1722,6 +1742,7 @@ const TEMPLATE = `
         kick.addEventListener("click", async () => {
           if (confirm("Kick " + u.displayName + "?")) {
             await updateDoc(doc(db, "servers", currentServer.id), { memberIds: arrayRemove(uid) });
+            logAudit("member_kick", "kicked " + u.displayName);
           }
         });
         actions.appendChild(kick);
@@ -1731,6 +1752,53 @@ const TEMPLATE = `
       list.appendChild(row);
     });
   }
+
+  // ---------- audit log ----------
+  function logAudit(action, detail) {
+    if (!currentServer || !me) return;
+    addDoc(collection(db, "servers", currentServer.id, "auditLog"), {
+      action,
+      actorUid: me.uid,
+      actorName: me.displayName,
+      detail: detail || "",
+      createdAt: serverTimestamp(),
+    }).catch((e) => console.error("Dark Web: audit log write failed", e));
+  }
+
+  async function renderAuditLog() {
+    const list = $("#audit-log-list");
+    if (!list || !currentServer) return;
+    list.innerHTML = '<div class="empty-hint small">Loading…</div>';
+    try {
+      const qs = await getDocs(query(collection(db, "servers", currentServer.id, "auditLog"), orderBy("createdAt", "desc"), limit(100)));
+      list.innerHTML = "";
+      if (qs.empty) {
+        list.innerHTML = '<div class="empty-hint small">No actions logged yet.</div>';
+        return;
+      }
+      qs.forEach((d) => {
+        const a = d.data();
+        const row = document.createElement("div");
+        row.className = "audit-row";
+        const who = document.createElement("span");
+        who.className = "audit-actor";
+        who.textContent = a.actorName || "Unknown";
+        const detail = document.createElement("span");
+        detail.className = "audit-detail";
+        detail.textContent = a.detail || a.action;
+        const when = document.createElement("span");
+        when.className = "audit-time";
+        when.textContent = a.createdAt && a.createdAt.toDate ? formatTime(a.createdAt.toDate()) : "";
+        row.appendChild(who);
+        row.appendChild(detail);
+        row.appendChild(when);
+        list.appendChild(row);
+      });
+    } catch (e) {
+      list.innerHTML = '<div class="empty-hint small">Couldn\'t load: ' + e.message + "</div>";
+    }
+  }
+  $(".tab-btn[data-stab='audit']").addEventListener("click", renderAuditLog);
 
   // ---------- channels ----------
   const channelsCol = () => collection(db, "servers", currentServer.id, "channels");
@@ -2333,7 +2401,13 @@ const TEMPLATE = `
           del.className = "icon-btn danger";
           del.title = "Delete message";
           del.innerHTML = ICONS.trash;
-          del.addEventListener("click", () => deleteDoc(doc(messagesCol(), id)));
+          del.addEventListener("click", () => {
+            deleteDoc(doc(messagesCol(), id));
+            if (!inDm() && me.uid !== m.uid) {
+              const authorName = profileFor(m.uid, { displayName: m.displayName }).displayName || "Unknown";
+              logAudit("message_delete", "deleted a message from " + authorName + " in #" + currentTextChannel.name);
+            }
+          });
           actions.appendChild(del);
         }
         row.appendChild(actions);
@@ -3934,11 +4008,15 @@ const TEMPLATE = `
       actions.appendChild(mk("↓", "btn-secondary", () => moveCategory(idx, 1), idx === cats.length - 1));
       actions.appendChild(mk("Rename", "btn-secondary", async () => {
         const name = prompt("Category name", cat.name);
-        if (name && name.trim()) await saveCategories(cats.map((c) => (c.id === cat.id ? { ...c, name: name.trim() } : c)));
+        if (name && name.trim()) {
+          await saveCategories(cats.map((c) => (c.id === cat.id ? { ...c, name: name.trim() } : c)));
+          logAudit("category_rename", 'renamed category "' + cat.name + '" → "' + name.trim() + '"');
+        }
       }));
       actions.appendChild(mk("Delete", "btn-danger", async () => {
         if (confirm('Delete category "' + cat.name + '"? Its channels stay and regroup by type.')) {
           await saveCategories(cats.filter((c) => c.id !== cat.id));
+          logAudit("category_delete", 'deleted category "' + cat.name + '"');
         }
       }));
       row.appendChild(label);
@@ -3973,6 +4051,7 @@ const TEMPLATE = `
     try {
       await saveCategories(serverCategories(currentServer).concat([{ id: genCode(), name }]));
       $("#new-category-name").value = "";
+      logAudit("category_create", 'created category "' + name + '"');
     } catch (err) {
       setMsg("#server-settings-msg", err.message, "error");
     }
@@ -4023,7 +4102,10 @@ const TEMPLATE = `
       renameBtn.textContent = "Rename";
       renameBtn.addEventListener("click", async () => {
         const name = prompt("New name", c.name);
-        if (name && name.trim()) await updateDoc(doc(channelsCol(), c.id), { name: name.trim() });
+        if (name && name.trim()) {
+          await updateDoc(doc(channelsCol(), c.id), { name: name.trim() });
+          logAudit("channel_rename", "renamed #" + c.name + " → #" + name.trim());
+        }
       });
       const delBtn = document.createElement("button");
       delBtn.className = "btn btn-danger btn-sm";
@@ -4031,6 +4113,7 @@ const TEMPLATE = `
       delBtn.addEventListener("click", async () => {
         if (confirm("Delete #" + c.name + "? Messages in it will no longer be visible.")) {
           await deleteDoc(doc(channelsCol(), c.id));
+          logAudit("channel_delete", "deleted #" + c.name);
         }
       });
       actions.appendChild(renameBtn);
@@ -4053,6 +4136,7 @@ const TEMPLATE = `
       if (categoryId) data.categoryId = categoryId;
       await addDoc(channelsCol(), data);
       $("#new-channel-name").value = "";
+      logAudit("channel_create", "created #" + name + " (" + type + ")");
     } catch (err) {
       alert("Couldn't create channel: " + err.message);
     }

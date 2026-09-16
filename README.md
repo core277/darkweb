@@ -119,7 +119,10 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   icon, rename, manage channels (text, voice, or **forum**), create **roles** with colours and
   permissions (manage channels, delete anyone's messages, mention @everyone) and hand them out on
   the Members tab, kick members, delete the server. Role permissions are stored on the server
-  document as `memberPerms` so the Firestore rules can enforce them.
+  document as `memberPerms` so the Firestore rules can enforce them. A **Server Settings → Audit
+  Log** tab records who did what (channel/category/role changes, kicks, icon/name changes,
+  moderator message deletions) under `servers/{id}/auditLog`, visible only to the owner and site
+  admins.
 - **Forum channels** hold posts: each post is a thread with a title and its own replies.
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
