@@ -417,6 +417,22 @@ svg { width: 20px; height: 20px; display: block; }
 .voice-member.speaking .avatar, .stage-tile.speaking .avatar, #user-panel-avatar.speaking .avatar { box-shadow: 0 0 0 2px var(--green); }
 .stage-tile.speaking { outline: 2px solid var(--green); }
 
+#incoming-call-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, rgba(35, 165, 89, 0.18), rgba(35, 165, 89, 0.06));
+  border-bottom: 1px solid var(--divider);
+  animation: incoming-pulse 1.6s ease-in-out infinite;
+}
+#incoming-call-banner span { font-weight: 600; color: var(--text-strong); }
+.incoming-call-actions { display: flex; gap: 8px; flex-shrink: 0; }
+@keyframes incoming-pulse {
+  0%, 100% { background-color: rgba(35, 165, 89, 0.06); }
+  50% { background-color: rgba(35, 165, 89, 0.22); }
+}
 #call-stage { background: #0b0c0e; padding: 12px; border-bottom: 1px solid var(--divider); max-height: 46%; overflow-y: auto; flex-shrink: 0; }
 .stage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .stage-tile {

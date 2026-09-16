@@ -65,7 +65,18 @@ export class VoiceManager {
     if (this.base) await this.leave();
     this.base = pathSegments;
 
-    const existing = await getDocs(this._participants());
+    let existing;
+    try {
+      existing = await getDocs(this._participants());
+    } catch (e) {
+      this.base = null;
+      this.onError(
+        e && e.code === "permission-denied"
+          ? "Access denied. If you run this Dark Web instance, the Firestore rules need publishing (see the README)."
+          : "Couldn't check who's already here: " + (e && e.message ? e.message : "unknown error")
+      );
+      return false;
+    }
     if (existing.size >= MAX_PARTICIPANTS) {
       this.base = null;
       this.onError("Voice channel is full (max " + MAX_PARTICIPANTS + ").");
@@ -87,11 +98,24 @@ export class VoiceManager {
     }
     this._watch(this.uid, this.localStream);
 
-    await setDoc(doc(this.db, ...this.base, "participants", this.uid), {
-      displayName: this.displayName,
-      avatarEmoji: this.avatarEmoji,
-      joinedAt: serverTimestamp(),
-    });
+    try {
+      await setDoc(doc(this.db, ...this.base, "participants", this.uid), {
+        displayName: this.displayName,
+        avatarEmoji: this.avatarEmoji,
+        joinedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      this._unwatch(this.uid);
+      this.localStream.getTracks().forEach((t) => t.stop());
+      this.localStream = null;
+      this.base = null;
+      this.onError(
+        e && e.code === "permission-denied"
+          ? "Access denied. If you run this Dark Web instance, the Firestore rules need publishing (see the README)."
+          : "Couldn't join: " + (e && e.message ? e.message : "unknown error")
+      );
+      return false;
+    }
 
     this.unsubParticipants = onSnapshot(this._participants(), (qs) => {
       const others = qs.docs.filter((d) => d.id !== this.uid).map((d) => d.id);

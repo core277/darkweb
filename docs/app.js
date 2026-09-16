@@ -53,6 +53,7 @@ const ICONS = {
   stage: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5v14h18V5H3zm8 12H5v-5h6v5zm0-7H5V7h6v3zm8 7h-6v-5h6v5zm0-7h-6V7h6v3z"/></svg>',
   chevDown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>',
   gamepad: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6H3a2 2 0 00-2 2v8a2 2 0 002 2h18a2 2 0 002-2V8a2 2 0 00-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-3a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>',
+  phone: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1C10.61 21 3 13.39 3 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.24.2 2.45.57 3.57a1 1 0 01-.25 1.02l-2.2 2.2z"/></svg>',
 };
 
 // Accounts created without an email get an internal one derived from the username so Firebase
@@ -180,11 +181,19 @@ const TEMPLATE = `
         <span id="channel-header-name">Welcome</span>
         <div class="header-actions">
           <button id="new-post-btn" class="btn btn-primary btn-sm" hidden>New post</button>
+          <button id="dm-call-btn" class="icon-btn" title="Voice call" hidden>${ICONS.phone}</button>
           <button id="toggle-members-btn" class="icon-btn" title="Toggle member list">${ICONS.members}</button>
           <button id="minimize-btn" class="icon-btn" title="Minimize">${ICONS.minimize}</button>
           <button id="close-btn" class="icon-btn" title="Close">${ICONS.close}</button>
         </div>
       </header>
+      <div id="incoming-call-banner" hidden>
+        <span id="incoming-call-text"></span>
+        <div class="incoming-call-actions">
+          <button id="incoming-call-accept" class="btn btn-primary btn-sm">Answer</button>
+          <button id="incoming-call-decline" class="btn btn-danger btn-sm">Decline</button>
+        </div>
+      </div>
       <div id="call-stage" hidden></div>
       <div id="message-list"></div>
       <div id="composer" hidden>
@@ -516,7 +525,12 @@ const TEMPLATE = `
   let currentTextChannel = null;
   let currentVoiceChannel = null;
   let currentVoiceServer = null;
+  let currentVoiceDm = null;
   let currentVoice = null;
+  let dmCallParticipants = []; // participants in whichever DM call the client is watching
+  let dmCallListenerId = null; // which dm's call/current/participants the listener above covers
+  let unsubDmCallParticipants = null;
+  let declinedDmCall = null; // dmId of an incoming call the user dismissed, so it doesn't re-pop
   let muted = false;
   let pendingImage = null;
   let lastMessages = [];
@@ -730,6 +744,8 @@ const TEMPLATE = `
     if (unsubDms) unsubDms();
     if (unsubDmMessages) unsubDmMessages();
     if (unsubPings) unsubPings();
+    unsubscribeDmCallParticipants();
+    declinedDmCall = null;
     unsubServers = unsubHome = unsubUsers = unsubMe = unsubDms = unsubDmMessages = unsubPings = null;
     pingsByServer = new Map();
     homeServer = null;
@@ -747,8 +763,10 @@ const TEMPLATE = `
   async function leaveVoice() {
     if (currentVoice) await currentVoice.leave();
     currentVoice = null;
+    const wasDm = currentVoiceDm;
     currentVoiceChannel = null;
     currentVoiceServer = null;
+    currentVoiceDm = null;
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
     peerStates.clear();
@@ -758,8 +776,13 @@ const TEMPLATE = `
     $("#voice-panel").hidden = true;
     $("#audio-unlock-btn").hidden = true;
     $("#user-panel-avatar").classList.remove("speaking");
+    if (wasDm) {
+      if (inDm() && currentDm) ensureDmCallListener(currentDm.id);
+      else unsubscribeDmCallParticipants();
+    }
     renderStage();
     renderChannels();
+    renderDmCallUi();
     renderUserPanel();
   }
 
@@ -2739,6 +2762,72 @@ const TEMPLATE = `
   function dmOther(dm) {
     return (dm.participants || []).find((u) => u !== me.uid) || me.uid;
   }
+
+  // Tracks who has joined a DM's call so the header can show "Call" / an incoming-call
+  // banner / nothing. Stays pinned to whichever DM you're actually calling in even if you
+  // browse to view a different conversation; otherwise it follows the DM you're viewing.
+  function ensureDmCallListener(viewedDmId) {
+    const target = currentVoiceDm || viewedDmId;
+    if (!target || dmCallListenerId === target) return;
+    if (unsubDmCallParticipants) unsubDmCallParticipants();
+    dmCallListenerId = target;
+    dmCallParticipants = [];
+    unsubDmCallParticipants = onSnapshot(
+      collection(db, "dms", target, "call", "current", "participants"),
+      (qs) => {
+        dmCallParticipants = qs.docs.map((d) => ({ uid: d.id, ...d.data() }));
+        if (!dmCallParticipants.some((p) => p.uid !== me.uid)) declinedDmCall = null;
+        renderDmCallUi();
+        renderStage();
+        renderVoicePeers();
+      },
+      (err) => console.error("Dark Web: dm call listener", err)
+    );
+  }
+  function unsubscribeDmCallParticipants() {
+    if (unsubDmCallParticipants) unsubDmCallParticipants();
+    unsubDmCallParticipants = null;
+    dmCallListenerId = null;
+    dmCallParticipants = [];
+  }
+
+  function renderDmCallUi() {
+    const banner = $("#incoming-call-banner");
+    const callBtn = $("#dm-call-btn");
+    if (!inDm() || !currentDm) {
+      callBtn.hidden = true;
+      banner.hidden = true;
+      return;
+    }
+    const inThisCall = currentVoiceDm === currentDm.id;
+    const dmCallActive = dmCallListenerId === currentDm.id;
+    const otherJoined = dmCallActive && dmCallParticipants.some((p) => p.uid !== me.uid);
+    callBtn.hidden = inThisCall || otherJoined;
+    banner.hidden = !(otherJoined && !inThisCall && declinedDmCall !== currentDm.id);
+    if (otherJoined) {
+      const other = dmCallParticipants.find((p) => p.uid !== me.uid);
+      const prof = profileFor(other.uid, other);
+      $("#incoming-call-text").textContent = (prof.displayName || "Someone") + " is calling…";
+    }
+  }
+  $("#dm-call-btn").addEventListener("click", () => {
+    if (currentDm) startDmCall(currentDm);
+  });
+  $("#incoming-call-accept").addEventListener("click", () => {
+    if (currentDm) startDmCall(currentDm);
+  });
+  $("#incoming-call-decline").addEventListener("click", () => {
+    if (currentDm) declinedDmCall = currentDm.id;
+    renderDmCallUi();
+  });
+
+  function noteDmCallActivity(dm) {
+    updateDoc(doc(db, "dms", dm.id), {
+      lastMessageAt: serverTimestamp(),
+      lastText: "📞 Started a call",
+      lastFrom: me.uid,
+    }).catch(() => {});
+  }
   function dmReadMap() {
     try {
       return JSON.parse(safeGet(DM_READ_KEY) || "{}");
@@ -2916,6 +3005,8 @@ const TEMPLATE = `
     $("#channel-header-name").textContent = prof.displayName || "Unknown";
     $("#composer").hidden = false;
     $("#message-input").placeholder = "Message @" + (prof.displayName || "");
+    ensureDmCallListener(dm.id);
+    renderDmCallUi();
     if (!switching) {
       renderMessages();
       return;
@@ -2953,12 +3044,14 @@ const TEMPLATE = `
     unsubMessages = null;
     if (unsubDmMessages) unsubDmMessages();
     unsubDmMessages = null;
+    if (!currentVoiceDm) unsubscribeDmCallParticipants();
     $("#app-screen").classList.add("dm-mode");
     $("#app-screen").classList.remove("sidebar-open");
     $("#post-back-btn").hidden = true;
     $("#new-post-btn").hidden = true;
     renderRail();
     renderDmList();
+    renderDmCallUi();
     $("#channel-header-icon").innerHTML = ICONS.chat;
     $("#channel-header-name").textContent = "Direct Messages";
     $("#composer").hidden = true;
@@ -2976,11 +3069,13 @@ const TEMPLATE = `
     viewMode = "server";
     if (unsubDmMessages) unsubDmMessages();
     unsubDmMessages = null;
+    if (!currentVoiceDm) unsubscribeDmCallParticipants();
     lastMessages = [];
     $("#app-screen").classList.remove("dm-mode");
     $("#channel-header-icon").innerHTML = ICONS.hash;
     renderRail();
     renderDmList();
+    renderDmCallUi();
   }
 
   $("#dm-rail-btn").addEventListener("click", () => {
@@ -3041,14 +3136,8 @@ const TEMPLATE = `
   let cameraOn = false;
   let screenOn = false;
 
-  async function joinVoiceChannel(ch) {
-    if (!me || !currentServer) return;
-    const sid = currentServer.id;
-    if (currentVoiceServer === sid && currentVoiceChannel === ch.id) {
-      stageVisible = true;
-      renderStage();
-      return;
-    }
+  // Shared setup used by both server voice channels and DM calls.
+  async function resetVoiceState() {
     if (currentVoice) await currentVoice.leave();
     remoteAudioEls.forEach((el) => el.remove());
     remoteAudioEls.clear();
@@ -3057,7 +3146,9 @@ const TEMPLATE = `
     stageStreams.clear();
     cameraOn = screenOn = false;
     $("#audio-unlock-btn").hidden = true;
-    currentVoice = new VoiceManager(db, me.uid, { displayName: me.displayName, avatarEmoji: me.avatarEmoji }, {
+  }
+  function makeVoiceCallbacks() {
+    return {
       onRemoteStream: (uid, stream, kind) => {
         if (!stream) {
           attachRemoteAudio(uid, null);
@@ -3093,7 +3184,19 @@ const TEMPLATE = `
         renderVoicePeers();
       },
       onError: (msg) => alert(msg),
-    });
+    };
+  }
+
+  async function joinVoiceChannel(ch) {
+    if (!me || !currentServer) return;
+    const sid = currentServer.id;
+    if (currentVoiceServer === sid && currentVoiceChannel === ch.id) {
+      stageVisible = true;
+      renderStage();
+      return;
+    }
+    await resetVoiceState();
+    currentVoice = new VoiceManager(db, me.uid, { displayName: me.displayName, avatarEmoji: me.avatarEmoji }, makeVoiceCallbacks());
     const ok = await currentVoice.join(["servers", sid, "voiceChannels", ch.id]);
     if (!ok) {
       currentVoice = null;
@@ -3102,6 +3205,7 @@ const TEMPLATE = `
     currentVoice.setMuted(muted);
     currentVoiceChannel = ch.id;
     currentVoiceServer = sid;
+    currentVoiceDm = null;
     stageVisible = true;
     $("#voice-panel").hidden = false;
     $("#voice-panel-channel").textContent = ch.name + " / " + currentServer.name;
@@ -3112,14 +3216,49 @@ const TEMPLATE = `
     renderStage();
   }
 
-  function voiceChannelParticipants() {
-    if (!currentVoiceChannel) return [];
-    return voiceParticipants.get(currentVoiceChannel) || [];
+  async function startDmCall(dm) {
+    if (!me) return;
+    if (currentVoiceDm === dm.id) {
+      stageVisible = true;
+      renderStage();
+      return;
+    }
+    declinedDmCall = null;
+    await resetVoiceState();
+    currentVoice = new VoiceManager(db, me.uid, { displayName: me.displayName, avatarEmoji: me.avatarEmoji }, makeVoiceCallbacks());
+    const ok = await currentVoice.join(["dms", dm.id, "call", "current"]);
+    if (!ok) {
+      currentVoice = null;
+      return;
+    }
+    currentVoice.setMuted(muted);
+    currentVoiceDm = dm.id;
+    currentVoiceChannel = null;
+    currentVoiceServer = null;
+    stageVisible = true;
+    ensureDmCallListener(dm.id);
+    const other = profileFor(dmOther(dm), { displayName: "Unknown" });
+    $("#voice-panel").hidden = false;
+    $("#voice-panel-channel").textContent = "Call with " + (other.displayName || "Unknown");
+    updateVoiceActionButtons();
+    renderVoicePeers();
+    renderDmCallUi();
+    renderUserPanel();
+    renderStage();
+    noteDmCallActivity(dm);
+  }
+
+  function activeCallParticipants() {
+    if (currentVoiceDm) return dmCallParticipants;
+    if (currentVoiceChannel) return voiceParticipants.get(currentVoiceChannel) || [];
+    return [];
   }
 
   function renderStage() {
     const stage = $("#call-stage");
-    const show = !!currentVoiceChannel && stageVisible && !inDm() && currentServer && currentServer.id === currentVoiceServer;
+    const activeServer = !!currentVoiceChannel && !inDm() && currentServer && currentServer.id === currentVoiceServer;
+    const activeDm = !!currentVoiceDm && inDm() && currentDm && currentDm.id === currentVoiceDm;
+    const show = (activeServer || activeDm) && stageVisible;
     stage.hidden = !show;
     if (!show) {
       stage.innerHTML = "";
@@ -3228,7 +3367,7 @@ const TEMPLATE = `
   function renderVoicePeers() {
     const box = $("#voice-peers");
     box.innerHTML = "";
-    if (!currentVoiceChannel) return;
+    if (!currentVoiceChannel && !currentVoiceDm) return;
     if (!peerStates.size) {
       box.innerHTML = '<div class="voice-peer muted-text">Waiting for others to join…</div>';
       return;

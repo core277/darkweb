@@ -76,13 +76,27 @@ service cloud.firestore {
       allow update: if isParticipant() && request.resource.data.participants == resource.data.participants;
       allow delete: if false;
 
+      function canUseDm() {
+        return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.participants;
+      }
+
       match /messages/{messageId} {
-        function canUseDm() {
-          return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/dms/$(dmId)).data.participants;
-        }
         allow read: if canUseDm();
         allow create: if canUseDm() && isNotBanned() && request.resource.data.uid == request.auth.uid;
         allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow update: if false;
+      }
+
+      // 1:1 voice/video calls, signaled the same way as server voice channels.
+      match /call/{callId}/participants/{userId} {
+        allow read: if canUseDm();
+        allow create, delete: if canUseDm() && request.auth.uid == userId && isNotBanned();
+        allow update: if false;
+      }
+      match /call/{callId}/signals/{signalId} {
+        allow read: if canUseDm();
+        allow create: if canUseDm() && request.resource.data.from == request.auth.uid;
+        allow delete: if isSignedIn() && resource.data.to == request.auth.uid;
         allow update: if false;
       }
     }

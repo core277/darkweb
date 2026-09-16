@@ -32,7 +32,8 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   them.
 - **Voice calls** use WebRTC directly between participants (mesh, up to 6 per voice channel), with
   Firestore documents used to exchange the offer/answer/ICE handshake instead of a dedicated signaling
-  server.
+  server. **Direct messages** get 1:1 voice/video calling too — the phone icon in a DM's header starts
+  a call at `dms/{dmId}/call/current`, and camera/screen share work the same as in a server call.
 
 ## Project structure
 
