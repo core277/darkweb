@@ -2190,6 +2190,7 @@ const TEMPLATE = `
       displayName: me.displayName,
       avatarEmoji: me.avatarEmoji,
       mentions: postMentions,
+      reactions: {},
       createdAt: serverTimestamp(),
     });
     try {
@@ -2315,15 +2316,26 @@ const TEMPLATE = `
       }
       row.appendChild(body);
 
-      if (me && (me.uid === m.uid || (!inDm() && hasPerm(currentServer, "manageMessages")))) {
+      const reactionRow = renderReactions(m, id);
+      if (reactionRow) body.appendChild(reactionRow);
+
+      if (me) {
         const actions = document.createElement("div");
         actions.className = "msg-actions";
-        const del = document.createElement("button");
-        del.className = "icon-btn danger";
-        del.title = "Delete message";
-        del.innerHTML = ICONS.trash;
-        del.addEventListener("click", () => deleteDoc(doc(messagesCol(), id)));
-        actions.appendChild(del);
+        const react = document.createElement("button");
+        react.className = "icon-btn react-trigger";
+        react.title = "Add reaction";
+        react.innerHTML = ICONS.emoji;
+        react.addEventListener("click", () => openReactionPicker(id, m));
+        actions.appendChild(react);
+        if (me.uid === m.uid || (!inDm() && hasPerm(currentServer, "manageMessages"))) {
+          const del = document.createElement("button");
+          del.className = "icon-btn danger";
+          del.title = "Delete message";
+          del.innerHTML = ICONS.trash;
+          del.addEventListener("click", () => deleteDoc(doc(messagesCol(), id)));
+          actions.appendChild(del);
+        }
         row.appendChild(actions);
       }
       list.appendChild(row);
@@ -2532,6 +2544,7 @@ const TEMPLATE = `
       displayName: me.displayName,
       avatarEmoji: me.avatarEmoji,
       mentions: renderRichText(document.createElement("div"), text).uids,
+      reactions: {},
       createdAt: serverTimestamp(),
     };
     if (pendingImage) payload.imageData = pendingImage;
@@ -2553,6 +2566,7 @@ const TEMPLATE = `
   let pickerMode = "emoji";
   let gifTimer = null;
   let gifRequestId = 0;
+  let reactionTarget = null; // { msgId, m } when the picker was opened to react to a message
 
   function recentEmoji() {
     try {
@@ -2597,8 +2611,13 @@ const TEMPLATE = `
         b.textContent = emoji;
         b.addEventListener("mousedown", (e) => e.preventDefault());
         b.addEventListener("click", () => {
-          insertAtCaret(emoji);
-          rememberEmoji(emoji);
+          if (reactionTarget) {
+            toggleReaction(reactionTarget.msgId, reactionTarget.m, emoji);
+            closePicker();
+          } else {
+            insertAtCaret(emoji);
+            rememberEmoji(emoji);
+          }
         });
         grid.appendChild(b);
       });
@@ -2622,15 +2641,28 @@ const TEMPLATE = `
   }
   function closePicker() {
     picker.hidden = true;
+    reactionTarget = null;
+    $(".picker-tab[data-picker='gif']").hidden = false;
   }
   function togglePicker(mode) {
     if (!picker.hidden && pickerMode === mode) closePicker();
     else showPicker(mode);
   }
+  function openReactionPicker(msgId, m) {
+    reactionTarget = { msgId, m };
+    $(".picker-tab[data-picker='gif']").hidden = true;
+    showPicker("emoji");
+  }
 
   $$(".picker-tab").forEach((t) => t.addEventListener("click", () => showPicker(t.dataset.picker)));
-  $("#emoji-btn").addEventListener("click", () => togglePicker("emoji"));
-  $("#gif-btn").addEventListener("click", () => togglePicker("gif"));
+  $("#emoji-btn").addEventListener("click", () => {
+    reactionTarget = null;
+    togglePicker("emoji");
+  });
+  $("#gif-btn").addEventListener("click", () => {
+    reactionTarget = null;
+    togglePicker("gif");
+  });
   $("#picker-search").addEventListener("input", () => {
     clearTimeout(gifTimer);
     gifTimer = setTimeout(() => loadGifs($("#picker-search").value.trim()), 350);
@@ -2641,7 +2673,14 @@ const TEMPLATE = `
   shadow.addEventListener("click", (e) => {
     if (picker.hidden) return;
     const path = e.composedPath();
-    if (!path.includes(picker) && !path.includes($("#emoji-btn")) && !path.includes($("#gif-btn"))) closePicker();
+    if (
+      !path.includes(picker) &&
+      !path.includes($("#emoji-btn")) &&
+      !path.includes($("#gif-btn")) &&
+      !path.some((el) => el.classList && el.classList.contains("react-trigger"))
+    ) {
+      closePicker();
+    }
   });
 
   // Returns [{preview, full, alt}] from whichever GIF provider has a key configured.
@@ -2744,6 +2783,7 @@ const TEMPLATE = `
         displayName: me.displayName,
         avatarEmoji: me.avatarEmoji,
         mentions: [],
+        reactions: {},
         createdAt: serverTimestamp(),
       });
       noteDmActivity("Sent a GIF");
@@ -2842,6 +2882,7 @@ const TEMPLATE = `
         pollOptions: options.map((text, i) => ({ id: "opt" + i, text })),
         multi: $("#poll-multi").checked,
         votes: {},
+        reactions: {},
         text: "",
         uid: me.uid,
         displayName: me.displayName,
@@ -2872,6 +2913,50 @@ const TEMPLATE = `
     } catch (e) {
       alert("Couldn't vote: " + e.message);
     }
+  }
+
+  // ---------- reactions ----------
+  async function toggleReaction(msgId, m, emoji) {
+    if (!me) return;
+    const mine = (m.reactions && m.reactions[me.uid]) || [];
+    const next = mine.includes(emoji) ? mine.filter((e) => e !== emoji) : mine.concat([emoji]);
+    try {
+      if (next.length) await updateDoc(doc(messagesCol(), msgId), { ["reactions." + me.uid]: next });
+      else await updateDoc(doc(messagesCol(), msgId), { ["reactions." + me.uid]: deleteField() });
+    } catch (e) {
+      alert("Couldn't react: " + e.message);
+    }
+  }
+
+  function renderReactions(m, msgId) {
+    const reactions = m.reactions || {};
+    const byEmoji = new Map();
+    Object.entries(reactions).forEach(([uid, emojis]) => {
+      (emojis || []).forEach((e) => {
+        if (!byEmoji.has(e)) byEmoji.set(e, []);
+        byEmoji.get(e).push(uid);
+      });
+    });
+    if (!byEmoji.size) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "reaction-row";
+    byEmoji.forEach((uids, emoji) => {
+      const mine = !!(me && uids.includes(me.uid));
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "reaction-pill" + (mine ? " mine" : "");
+      pill.title = uids.map((u) => profileFor(u, { displayName: "Unknown" }).displayName || "Unknown").join(", ");
+      const em = document.createElement("span");
+      em.textContent = emoji;
+      const count = document.createElement("span");
+      count.className = "reaction-count";
+      count.textContent = String(uids.length);
+      pill.appendChild(em);
+      pill.appendChild(count);
+      pill.addEventListener("click", () => toggleReaction(msgId, m, emoji));
+      wrap.appendChild(pill);
+    });
+    return wrap;
   }
 
   function renderPoll(m, msgId) {

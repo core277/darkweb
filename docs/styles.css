@@ -595,6 +595,24 @@ svg { width: 20px; height: 20px; display: block; }
 .msg-text { color: var(--text); font-size: 15px; white-space: pre-wrap; word-wrap: break-word; }
 .msg-image { display: block; max-width: min(400px, 100%); max-height: 320px; border-radius: 8px; margin-top: 6px; cursor: zoom-in; }
 
+.reaction-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--sidebar);
+  border: 1px solid var(--divider);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.reaction-pill:hover { border-color: var(--blurple); }
+.reaction-pill.mine { background: rgba(88, 101, 242, 0.18); border-color: var(--blurple); }
+.reaction-count { font-size: 12px; color: var(--muted); }
+.reaction-pill.mine .reaction-count { color: var(--text); }
+
 .poll-card { max-width: 420px; background: var(--sidebar); border-radius: 10px; padding: 14px; margin-top: 6px; }
 .poll-question { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-strong); margin-bottom: 10px; }
 .poll-question svg { width: 18px; height: 18px; color: var(--blurple); flex-shrink: 0; }

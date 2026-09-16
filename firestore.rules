@@ -49,6 +49,16 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
           && resource.data.votes.diff(request.resource.data.votes).affectedKeys().hasOnly([request.auth.uid]);
     }
+    // Lets anyone react to any visible message by touching only their own key in its
+    // reactions map (uid -> [emoji, ...]); tolerates messages sent before this field existed.
+    function reactionsOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+          && (('reactions' in resource.data) ? resource.data.reactions : {})
+               .diff(request.resource.data.reactions).affectedKeys().hasOnly([request.auth.uid]);
+    }
+    function messageUpdateOk() {
+      return pollVoteOnly() || reactionsOnly();
+    }
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -91,7 +101,7 @@ service cloud.firestore {
         allow read: if canUseDm();
         allow create: if canUseDm() && isNotBanned() && request.resource.data.uid == request.auth.uid;
         allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
-        allow update: if canUseDm() && isNotBanned() && pollVoteOnly();
+        allow update: if canUseDm() && isNotBanned() && messageUpdateOk();
       }
 
       // 1:1 voice/video calls, signaled the same way as server voice channels.
@@ -161,7 +171,7 @@ service cloud.firestore {
           allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
           allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
                         || (isSignedIn() && resource.data.uid == request.auth.uid);
-          allow update: if canAccess(serverId) && isNotBanned() && pollVoteOnly();
+          allow update: if canAccess(serverId) && isNotBanned() && messageUpdateOk();
         }
 
         // Forum channels: posts (threads) with their own message lists.
@@ -178,7 +188,7 @@ service cloud.firestore {
             allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
             allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
                           || (isSignedIn() && resource.data.uid == request.auth.uid);
-            allow update: if canAccess(serverId) && isNotBanned() && pollVoteOnly();
+            allow update: if canAccess(serverId) && isNotBanned() && messageUpdateOk();
           }
         }
       }

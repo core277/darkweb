@@ -23,6 +23,9 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   `username@users.darkweb.local` login behind the scenes and can add a real email later from User
   Settings → Account. Change display name, status, avatar (uploaded picture or emoji fallback), email,
   and password from User Settings.
+- **Reactions**: hover a message and click the smiley icon to react with any emoji; click an existing
+  reaction pill to add or remove yours. Stored the same way as poll votes - a `reactions: { uid:
+  [emoji, ...] }` map on the message, with rules allowing anyone to touch only their own key.
 - **Polls**: the bar-chart icon in the message bar creates a poll (question + 2-10 options, optional
   "pick more than one"). Votes live in a `votes: { uid: [optionId, ...] }` map on the poll message
   itself; the rules let anyone touch only their own key in that map, so votes update live for everyone
