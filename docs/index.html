@@ -23,8 +23,6 @@
 
   /* ---- calculator gate ---- */
   #gate { display: flex; flex-direction: column; align-items: center; padding: 40px 0 20px; }
-  #gate .gate-title { color: var(--accent); font-weight: 700; letter-spacing: 0.08em; font-size: 13px; text-transform: uppercase; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
-  #gate .gate-title img { width: 20px; height: 20px; }
   .calc { width: min(92vw, 300px); background: var(--card); border-radius: 20px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
   .calc-screen { background: #0a0817; border-radius: 12px; padding: 20px 16px; text-align: right; margin-bottom: 16px; min-height: 76px; overflow: hidden; }
   .calc-expr { color: var(--muted); font-size: 13px; min-height: 16px; word-break: break-all; }
@@ -57,7 +55,6 @@
 <body>
 
   <div id="gate">
-    <div class="gate-title"><img src="logo.svg" alt="" />Dark Web Launch Console — Locked</div>
     <div class="calc">
       <div class="calc-screen">
         <div class="calc-expr" id="calc-expr">&nbsp;</div>
