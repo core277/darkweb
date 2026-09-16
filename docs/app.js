@@ -53,6 +53,7 @@ const ICONS = {
   stage: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5v14h18V5H3zm8 12H5v-5h6v5zm0-7H5V7h6v3zm8 7h-6v-5h6v5zm0-7h-6V7h6v3z"/></svg>',
   chevDown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>',
   gamepad: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6H3a2 2 0 00-2 2v8a2 2 0 002 2h18a2 2 0 002-2V8a2 2 0 00-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-3a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>',
+  casino: '<span class="emoji-icon">\u{1F3B0}</span>',
   phone: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1C10.61 21 3 13.39 3 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.24.2 2.45.57 3.57a1 1 0 01-.25 1.02l-2.2 2.2z"/></svg>',
   poll: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 9h4v11H5V9zm10-6h4v17h-4V3zm-5 12h4v5h-4v-5z"/></svg>',
 };
@@ -439,6 +440,7 @@ const TEMPLATE = `
             <option value="text">Text</option>
             <option value="voice">Voice</option>
             <option value="forum">Forum</option>
+            <option value="casino">Casino</option>
           </select>
           <select id="new-channel-cat"></select>
           <button type="submit" class="btn btn-primary">Create</button>
@@ -991,9 +993,15 @@ const TEMPLATE = `
         status: data.status || "",
         bio: data.bio || "",
         games: Array.isArray(data.games) ? data.games : [],
+        volts: typeof data.volts === "number" ? data.volts : 0,
+        lastClaimAt: data.lastClaimAt || null,
       };
+      // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
+      // (Firestore orderBy silently skips docs missing the field entirely).
+      if (typeof data.volts !== "number") updateDoc(userRef, { volts: 0 }).catch(() => {});
       $("#admin-btn").hidden = !isGlobalAdmin();
       renderUserPanel();
+      if (!inDm() && currentTextChannel && currentTextChannel.type === "casino") updateCasinoBalance();
       if (firstLoad) {
         showScreen("app-screen");
         syncLayoutForWidth();
@@ -1835,7 +1843,10 @@ const TEMPLATE = `
         const stillExists = currentTextChannel && channelsCache.some((c) => c.id === currentTextChannel.id);
         if (!stillExists) {
           currentTextChannel = null;
-          const firstText = channelsCache.find((c) => c.type === "text") || channelsCache.find((c) => c.type === "forum");
+          const firstText =
+            channelsCache.find((c) => c.type === "text") ||
+            channelsCache.find((c) => c.type === "forum") ||
+            channelsCache.find((c) => c.type === "casino");
           if (inDm()) currentTextChannel = firstText || null;
           else if (firstText) selectTextChannel(firstText);
           else showNoChannels();
@@ -1878,7 +1889,7 @@ const TEMPLATE = `
 
   // Categories live on the server doc; channels point at one via categoryId. Channels created
   // before categories existed fall back to a virtual group per type so nothing disappears.
-  const LEGACY_CATS = { text: "Text Channels", voice: "Voice Channels", forum: "Forums" };
+  const LEGACY_CATS = { text: "Text Channels", voice: "Voice Channels", forum: "Forums", casino: "Casino" };
   const serverCategories = (s) => (s && Array.isArray(s.categories) ? s.categories : []);
 
   function channelGroups() {
@@ -1900,7 +1911,7 @@ const TEMPLATE = `
         legacy[key].channels.push(ch);
       }
     });
-    ["_text", "_voice", "_forum"].forEach((k) => {
+    ["_text", "_voice", "_forum", "_casino"].forEach((k) => {
       if (legacy[k]) groups.push(legacy[k]);
     });
     return groups;
@@ -1915,12 +1926,13 @@ const TEMPLATE = `
       : !inDm() && currentTextChannel && currentTextChannel.id === c.id;
     const el = document.createElement("div");
     el.className = "channel-item" + (active ? " active" : "");
-    const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : ICONS.speaker;
+    const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : c.type === "casino" ? ICONS.casino : ICONS.speaker;
     el.innerHTML = '<span class="ch-icon">' + icon + '</span><span class="ch-name"></span>';
     el.querySelector(".ch-name").textContent = c.name;
     el.addEventListener("click", () => {
       if (isVoice) joinVoiceChannel(c);
       else if (c.type === "forum") selectForumChannel(c);
+      else if (c.type === "casino") selectCasinoChannel(c);
       else selectTextChannel(c);
     });
     if (!isVoice) return el;
@@ -2037,6 +2049,7 @@ const TEMPLATE = `
 
   function selectTextChannel(ch, attempt = 0) {
     if (ch.type === "forum") return selectForumChannel(ch, attempt);
+    if (ch.type === "casino") return selectCasinoChannel(ch);
     if (inDm()) leaveDmView();
     resetForumUi();
     const switching = attempt > 0 || !currentTextChannel || currentTextChannel.id !== ch.id;
@@ -2283,6 +2296,319 @@ const TEMPLATE = `
     return w;
   }
 
+  // ---- casino channels: slots + spin the wheel, paid for with Volts ----
+  const WEEKLY_VOLTS = 500;
+  const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000;
+  const SLOT_SYMBOLS = ["\u{1F352}", "\u{1F34B}", "\u{1F347}", "\u{1F514}", "⭐", "\u{1F48E}", "7️⃣"];
+  const WHEEL_SEGMENTS = [
+    { mult: 0, label: "0×", weight: 30, color: "#3a3d45" },
+    { mult: 1, label: "1×", weight: 25, color: "#4d5568" },
+    { mult: 1.5, label: "1.5×", weight: 20, color: "#5865f2" },
+    { mult: 2, label: "2×", weight: 14, color: "#3ba55d" },
+    { mult: 3, label: "3×", weight: 8, color: "#faa61a" },
+    { mult: 5, label: "JACKPOT 5×", weight: 3, color: "#ed4245" },
+  ];
+  let wheelRotation = 0;
+
+  function slotPayoutMultiplier(a, b, c) {
+    if (a === b && b === c) {
+      if (a === "7️⃣") return 20;
+      if (a === "\u{1F48E}") return 10;
+      if (a === "⭐") return 6;
+      if (a === "\u{1F514}") return 4;
+      return 3;
+    }
+    if (a === b || b === c || a === c) return 1.2;
+    return 0;
+  }
+  function pickWheelSegment() {
+    const total = WHEEL_SEGMENTS.reduce((s, x) => s + x.weight, 0);
+    let r = Math.random() * total;
+    for (const seg of WHEEL_SEGMENTS) {
+      if (r < seg.weight) return seg;
+      r -= seg.weight;
+    }
+    return WHEEL_SEGMENTS[0];
+  }
+  function wait(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  // Applies a bet's outcome against the live balance in a transaction, so two rapid spins
+  // (or two tabs) can never push a balance negative.
+  async function applyCasinoResult(bet, multiplier) {
+    const uref = doc(db, "users", me.uid);
+    return await runTransaction(db, async (tx) => {
+      const snap = await tx.get(uref);
+      const cur = (snap.data() || {}).volts || 0;
+      if (cur < bet) throw new Error("You don't have enough Volts for that bet.");
+      const winnings = Math.round(bet * multiplier);
+      const next = cur - bet + winnings;
+      tx.update(uref, { volts: next });
+      return { next, winnings };
+    });
+  }
+
+  async function claimWeeklyVolts() {
+    if (!me) return;
+    const uref = doc(db, "users", me.uid);
+    try {
+      const next = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(uref);
+        const d = snap.data() || {};
+        const last = d.lastClaimAt && d.lastClaimAt.toMillis ? d.lastClaimAt.toMillis() : 0;
+        if (Date.now() - last < WEEKLY_MS) throw new Error("not-yet");
+        const val = (d.volts || 0) + WEEKLY_VOLTS;
+        tx.update(uref, { volts: val, lastClaimAt: serverTimestamp() });
+        return val;
+      });
+      me.volts = next;
+      me.lastClaimAt = { toMillis: () => Date.now() };
+      updateCasinoBalance();
+      setMsg("#casino-msg", "Claimed " + WEEKLY_VOLTS + " ⚡ Volts!", "ok");
+    } catch (e) {
+      setMsg("#casino-msg", e.message === "not-yet" ? "You've already claimed this week's Volts." : "Couldn't claim: " + e.message, "error");
+    }
+  }
+
+  function updateCasinoBalance() {
+    if (!me) return;
+    const amt = $("#casino-balance-amt");
+    if (!amt) return;
+    amt.textContent = (me.volts || 0).toLocaleString();
+    const btn = $("#casino-claim-btn");
+    const hint = $("#casino-claim-hint");
+    if (!btn || !hint) return;
+    const last = me.lastClaimAt && me.lastClaimAt.toMillis ? me.lastClaimAt.toMillis() : 0;
+    const remain = WEEKLY_MS - (Date.now() - last);
+    if (remain > 0) {
+      btn.disabled = true;
+      // Clamp to 7: server/client clock drift can otherwise push this to 8 right after claiming.
+      const days = Math.min(7, Math.max(1, Math.ceil(remain / (24 * 60 * 60 * 1000))));
+      hint.textContent = "Next claim in " + days + (days === 1 ? " day" : " days");
+    } else {
+      btn.disabled = false;
+      hint.textContent = "Free Volts available!";
+    }
+  }
+
+  function casinoTabs() {
+    const box = $("#casino-view");
+    if (!box) return;
+    box.querySelectorAll(".tab-btn[data-ctab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tab = btn.dataset.ctab;
+        box.querySelectorAll(".tab-btn[data-ctab]").forEach((b) => b.classList.toggle("active", b === btn));
+        box.querySelectorAll("[id^='ctab-']").forEach((p) => (p.hidden = p.id !== "ctab-" + tab));
+        if (tab === "board") renderCasinoBoard();
+      });
+    });
+  }
+
+  function renderWheelLegend() {
+    const legend = $("#wheel-legend");
+    if (!legend) return;
+    legend.innerHTML = "";
+    WHEEL_SEGMENTS.forEach((seg) => {
+      const row = document.createElement("div");
+      row.className = "wheel-legend-row";
+      row.innerHTML = '<span class="wheel-swatch" style="background:' + seg.color + '"></span><span></span>';
+      row.querySelector("span:last-child").textContent = seg.label;
+      legend.appendChild(row);
+    });
+    const wheel = $("#casino-wheel");
+    if (wheel) {
+      const total = WHEEL_SEGMENTS.reduce((s, x) => s + x.weight, 0);
+      let acc = 0;
+      const stops = WHEEL_SEGMENTS.map((seg) => {
+        const start = (acc / total) * 360;
+        acc += seg.weight;
+        const end = (acc / total) * 360;
+        return seg.color + " " + start + "deg " + end + "deg";
+      });
+      wheel.style.background = "conic-gradient(" + stops.join(", ") + ")";
+    }
+  }
+
+  function selectCasinoChannel(ch) {
+    if (inDm()) leaveDmView();
+    resetForumUi();
+    if (unsubMessages) unsubMessages();
+    unsubMessages = null;
+    lastMessages = [];
+    currentTextChannel = ch;
+    $("#channel-header-icon").innerHTML = ICONS.casino;
+    $("#channel-header-name").textContent = ch.name;
+    $("#composer").hidden = true;
+    $("#new-post-btn").hidden = true;
+    $("#post-back-btn").hidden = true;
+    $("#app-screen").classList.remove("sidebar-open");
+    renderChannels();
+    renderCasinoHome();
+  }
+
+  function renderCasinoHome() {
+    if (inDm() || !currentTextChannel || currentTextChannel.type !== "casino") return;
+    const list = $("#message-list");
+    list.innerHTML =
+      '<div class="casino-view" id="casino-view">' +
+        '<div class="casino-header">' +
+          '<div class="casino-balance">⚡ <span id="casino-balance-amt">0</span> Volts</div>' +
+          '<button id="casino-claim-btn" class="btn btn-primary btn-sm">Claim weekly Volts</button>' +
+          '<div id="casino-claim-hint" class="casino-claim-hint"></div>' +
+        "</div>" +
+        '<div class="casino-tabs modal-tabs">' +
+          '<button class="tab-btn active" data-ctab="slots">\u{1F3B0} Slots</button>' +
+          '<button class="tab-btn" data-ctab="wheel">\u{1F3A1} Wheel</button>' +
+          '<button class="tab-btn" data-ctab="board">\u{1F3C6} Volt Lords</button>' +
+        "</div>" +
+        '<div id="ctab-slots" class="casino-tab">' +
+          '<div class="slot-machine"><div class="slot-reels">' +
+            '<span class="slot-reel" id="slot-r0">\u{1F352}</span>' +
+            '<span class="slot-reel" id="slot-r1">\u{1F352}</span>' +
+            '<span class="slot-reel" id="slot-r2">\u{1F352}</span>' +
+          "</div></div>" +
+          '<div class="casino-bet-row"><label>Bet <input id="slot-bet" type="number" min="10" step="10" value="50" /></label>' +
+          '<button id="slot-spin-btn" class="btn btn-primary">Spin</button></div>' +
+          '<div class="casino-paytable">3×7️⃣ pays 20× &middot; 3×\u{1F48E} pays 10× &middot; 3×⭐ pays 6× &middot; 3×\u{1F514} pays 4× &middot; 3 of any pays 3× &middot; 2 of any pays 1.2×</div>' +
+        "</div>" +
+        '<div id="ctab-wheel" class="casino-tab" hidden>' +
+          '<div class="wheel-wrap"><div class="wheel-pointer">▼</div><div class="wheel" id="casino-wheel"></div></div>' +
+          '<div class="wheel-legend" id="wheel-legend"></div>' +
+          '<div class="casino-bet-row"><label>Bet <input id="wheel-bet" type="number" min="10" step="10" value="50" /></label>' +
+          '<button id="wheel-spin-btn" class="btn btn-primary">Spin the wheel</button></div>' +
+        "</div>" +
+        '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
+        '<div id="casino-msg" class="form-msg"></div>' +
+      "</div>";
+    updateCasinoBalance();
+    renderWheelLegend();
+    casinoTabs();
+    $("#casino-claim-btn").addEventListener("click", claimWeeklyVolts);
+    $("#slot-spin-btn").addEventListener("click", spinSlots);
+    $("#wheel-spin-btn").addEventListener("click", spinWheel);
+  }
+
+  async function spinSlots() {
+    if (!me || currentTextChannel.type !== "casino") return;
+    const betInput = $("#slot-bet");
+    const btn = $("#slot-spin-btn");
+    const bet = Math.max(10, Math.floor(Number(betInput.value) || 0));
+    if ((me.volts || 0) < bet) {
+      setMsg("#casino-msg", "You don't have enough Volts for that bet.", "error");
+      return;
+    }
+    btn.disabled = true;
+    setMsg("#casino-msg", "");
+    const a = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+    const b = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+    const c = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+    const mult = slotPayoutMultiplier(a, b, c);
+    const reels = [$("#slot-r0"), $("#slot-r1"), $("#slot-r2")];
+    const spins = 10;
+    for (let i = 0; i < spins; i++) {
+      reels.forEach((r, idx) => {
+        if (i < spins - (idx + 1) * 2) r.textContent = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+      });
+      await wait(80);
+    }
+    reels[0].textContent = a;
+    reels[1].textContent = b;
+    reels[2].textContent = c;
+    try {
+      const { next, winnings } = await applyCasinoResult(bet, mult);
+      me.volts = next;
+      updateCasinoBalance();
+      setMsg(
+        "#casino-msg",
+        mult > 0 ? "You won " + winnings + " ⚡ Volts!" : "No match — you lost " + bet + " ⚡ Volts.",
+        mult > 0 ? "ok" : "error"
+      );
+    } catch (e) {
+      setMsg("#casino-msg", e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function spinWheel() {
+    if (!me || currentTextChannel.type !== "casino") return;
+    const betInput = $("#wheel-bet");
+    const btn = $("#wheel-spin-btn");
+    const bet = Math.max(10, Math.floor(Number(betInput.value) || 0));
+    if ((me.volts || 0) < bet) {
+      setMsg("#casino-msg", "You don't have enough Volts for that bet.", "error");
+      return;
+    }
+    btn.disabled = true;
+    setMsg("#casino-msg", "");
+    const seg = pickWheelSegment();
+    const total = WHEEL_SEGMENTS.reduce((s, x) => s + x.weight, 0);
+    let acc = 0;
+    for (const s of WHEEL_SEGMENTS) {
+      if (s === seg) break;
+      acc += s.weight;
+    }
+    const midAngle = ((acc + seg.weight / 2) / total) * 360;
+    const landingOffset = (360 - midAngle + 360) % 360;
+    const spins = 6;
+    wheelRotation = wheelRotation - (wheelRotation % 360) + spins * 360 + ((landingOffset - (wheelRotation % 360) + 360) % 360);
+    const wheel = $("#casino-wheel");
+    wheel.style.transition = "transform 3.2s cubic-bezier(.17,.67,.16,1)";
+    wheel.style.transform = "rotate(" + wheelRotation + "deg)";
+    await wait(3300);
+    try {
+      const { next, winnings } = await applyCasinoResult(bet, seg.mult);
+      me.volts = next;
+      updateCasinoBalance();
+      setMsg(
+        "#casino-msg",
+        seg.mult > 0 ? "Landed on " + seg.label + "! You won " + winnings + " ⚡ Volts." : "Landed on 0× — you lost " + bet + " ⚡ Volts.",
+        seg.mult > 0 ? "ok" : "error"
+      );
+    } catch (e) {
+      setMsg("#casino-msg", e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function renderCasinoBoard() {
+    const list = $("#casino-board-list");
+    if (!list) return;
+    list.innerHTML = '<div class="empty-hint small">Loading…</div>';
+    try {
+      const qs = await getDocs(query(collection(db, "users"), orderBy("volts", "desc"), limit(15)));
+      list.innerHTML = "";
+      let rank = 0;
+      qs.forEach((d) => {
+        const u = d.data();
+        if (u.banned || u.deleted) return;
+        rank++;
+        const row = document.createElement("div");
+        row.className = "board-row" + (rank === 1 ? " board-first" : "");
+        const rankEl = document.createElement("span");
+        rankEl.className = "board-rank";
+        rankEl.textContent = "#" + rank;
+        row.appendChild(rankEl);
+        row.appendChild(makeAvatar(u, d.id, "avatar-24", false));
+        const name = document.createElement("span");
+        name.className = "board-name";
+        name.textContent = u.displayName || "Unknown";
+        if (rank === 1) name.appendChild(badgeIcon(ICONS.crown, "crown", "Volt Lord"));
+        row.appendChild(name);
+        const amt = document.createElement("span");
+        amt.className = "board-amt";
+        amt.textContent = (u.volts || 0).toLocaleString() + " ⚡";
+        row.appendChild(amt);
+        list.appendChild(row);
+      });
+      if (!rank) list.innerHTML = '<div class="empty-hint small">Nobody has any Volts yet.</div>';
+    } catch (e) {
+      list.innerHTML = '<div class="empty-hint small">Couldn\'t load: ' + e.message + "</div>";
+    }
+  }
+
   function dmWelcomeBlock(name) {
     const w = document.createElement("div");
     w.className = "welcome";
@@ -2294,7 +2620,15 @@ const TEMPLATE = `
 
   function renderMessages() {
     const list = $("#message-list");
-    if (inDm() ? !currentDm : !currentServer || !currentTextChannel) return;
+    if (
+      inDm()
+        ? !currentDm
+        : !currentServer ||
+          !currentTextChannel ||
+          currentTextChannel.type === "casino" ||
+          (currentTextChannel.type === "forum" && !currentPost)
+    )
+      return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
     list.innerHTML = "";
     if (lastMessages.length < MESSAGE_LIMIT) {
@@ -4073,7 +4407,7 @@ const TEMPLATE = `
       row.className = "admin-row";
       const label = document.createElement("span");
       label.className = "admin-label";
-      const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : ICONS.speaker;
+      const icon = c.type === "text" ? ICONS.hash : c.type === "forum" ? ICONS.forum : c.type === "casino" ? ICONS.casino : ICONS.speaker;
       label.innerHTML = '<span class="ch-icon">' + icon + "</span><span></span>";
       label.querySelector("span:last-child").textContent = c.name;
       const actions = document.createElement("span");

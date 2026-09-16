@@ -124,6 +124,14 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   moderator message deletions) under `servers/{id}/auditLog`, visible only to the owner and site
   admins.
 - **Forum channels** hold posts: each post is a thread with a title and its own replies.
+- **Casino channels** (channel type **Casino**) let everyone play with **Volts ⚡**, an in-app
+  currency: every user can claim **500 Volts once a week** (Server Settings isn't needed for this —
+  it's per-user, not per-server), then bet them on **🎰 Slots** (3 spinning reels, up to 20× on a
+  jackpot) or **🎡 Spin the Wheel** (a weighted wheel from 0× busts to a 5× jackpot). A **Volt
+  Lords** leaderboard tab ranks the top holders server-wide, crowning #1. Balances live on
+  `users/{uid}.volts` / `.lastClaimAt`, and every bet is settled with a Firestore transaction so two
+  rapid spins (or two tabs) can never push a balance negative. No rules changes are needed for this
+  feature — it rides on the existing "you can always edit your own user doc" rule.
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
   the **Site Admin** panel (all servers, all users, promote/ban/delete). Deleting an account wipes
