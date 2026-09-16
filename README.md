@@ -23,6 +23,10 @@ real-time messaging, WebRTC group voice calls, and an admin panel to manage chan
   `username@users.darkweb.local` login behind the scenes and can add a real email later from User
   Settings → Account. Change display name, status, avatar (uploaded picture or emoji fallback), email,
   and password from User Settings.
+- **Polls**: the bar-chart icon in the message bar creates a poll (question + 2-10 options, optional
+  "pick more than one"). Votes live in a `votes: { uid: [optionId, ...] }` map on the poll message
+  itself; the rules let anyone touch only their own key in that map, so votes update live for everyone
+  without opening up the rest of the message to editing. Works in channels, forum posts, and DMs.
 - **Direct messages**: the chat-bubble button in the rail opens your conversations. Click any member
   (or a message author's name) to DM them. Stored under `dms/{uidA_uidB}` and readable only by the
   two participants - site admins included. Unread counts show on the rail button.

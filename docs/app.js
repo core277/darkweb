@@ -54,6 +54,7 @@ const ICONS = {
   chevDown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>',
   gamepad: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6H3a2 2 0 00-2 2v8a2 2 0 002 2h18a2 2 0 002-2V8a2 2 0 00-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm3-3a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>',
   phone: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1C10.61 21 3 13.39 3 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.24.2 2.45.57 3.57a1 1 0 01-.25 1.02l-2.2 2.2z"/></svg>',
+  poll: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 9h4v11H5V9zm10-6h4v17h-4V3zm-5 12h4v5h-4v-5z"/></svg>',
 };
 
 // Accounts created without an email get an internal one derived from the username so Firebase
@@ -218,6 +219,7 @@ const TEMPLATE = `
           <button id="attach-btn" class="icon-btn attach" title="Upload image">${ICONS.plus}</button>
           <input type="file" id="image-input" accept="image/*" hidden />
           <textarea id="message-input" rows="1" placeholder="Message" autocomplete="off"></textarea>
+          <button id="poll-btn" class="icon-btn" title="Create a poll">${ICONS.poll}</button>
           <button id="gif-btn" class="icon-btn gif-chip" title="GIFs">GIF</button>
           <button id="emoji-btn" class="icon-btn" title="Emoji">${ICONS.emoji}</button>
           <button id="send-btn" class="icon-btn" title="Send">${ICONS.send}</button>
@@ -312,6 +314,24 @@ const TEMPLATE = `
           <button id="profile-card-dm" class="btn btn-primary">Message</button>
           <button id="profile-card-edit" class="btn btn-secondary" hidden>Edit profile</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="poll-modal" class="modal" hidden>
+    <div class="modal-card small-card">
+      <div class="modal-header"><span>Create a poll</span><button id="poll-close" class="icon-btn" title="Close">${ICONS.close}</button></div>
+      <div class="admin-tab">
+        <label class="field-label">Question</label>
+        <input id="poll-question" maxlength="150" placeholder="What should we do this weekend?" autocomplete="off" />
+        <label class="field-label">Options</label>
+        <div id="poll-options"></div>
+        <button id="poll-add-option" class="btn btn-secondary btn-sm" type="button">+ Add option</button>
+        <label class="hint" style="display:flex;align-items:center;gap:8px;margin-top:14px;">
+          <input id="poll-multi" type="checkbox" style="width:auto;" /> Allow picking more than one option
+        </label>
+        <div class="row-end"><button id="poll-create-btn" class="btn btn-primary">Create Poll</button></div>
+        <div id="poll-msg" class="form-msg"></div>
       </div>
     </div>
   </div>
@@ -2279,6 +2299,7 @@ const TEMPLATE = `
         }
         body.appendChild(text);
       }
+      if (m.type === "poll") body.appendChild(renderPoll(m, id));
       const imageSrc = m.imageData || m.gifUrl;
       if (imageSrc) {
         const img = document.createElement("img");
@@ -2751,6 +2772,162 @@ const TEMPLATE = `
     pendingImage = null;
     $("#image-preview").hidden = true;
     $("#image-preview-img").src = "";
+  }
+
+  // ---------- polls ----------
+  const MAX_POLL_OPTIONS = 10;
+  function renderPollOptionInputs(count) {
+    const box = $("#poll-options");
+    box.innerHTML = "";
+    for (let i = 0; i < count; i++) {
+      const row = document.createElement("div");
+      row.className = "poll-option-row";
+      const input = document.createElement("input");
+      input.className = "poll-option-input";
+      input.placeholder = "Option " + (i + 1);
+      input.maxLength = 80;
+      row.appendChild(input);
+      if (count > 2) {
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "icon-btn danger";
+        rm.title = "Remove option";
+        rm.innerHTML = ICONS.close;
+        rm.addEventListener("click", () => {
+          row.remove();
+          Array.from(box.children).forEach((r, idx) => {
+            if (!r.querySelector(".poll-option-input").value) r.querySelector(".poll-option-input").placeholder = "Option " + (idx + 1);
+          });
+        });
+        row.appendChild(rm);
+      }
+      box.appendChild(row);
+    }
+  }
+  $("#poll-btn").addEventListener("click", () => {
+    if (!me || (inDm() ? !currentDm : !currentServer || !currentTextChannel)) return;
+    closePicker();
+    closeMentionPopup();
+    $("#poll-question").value = "";
+    $("#poll-multi").checked = false;
+    setMsg("#poll-msg", "");
+    renderPollOptionInputs(2);
+    openModal("poll-modal");
+    $("#poll-question").focus();
+  });
+  $("#poll-close").addEventListener("click", () => closeModal("poll-modal"));
+  $("#poll-add-option").addEventListener("click", () => {
+    const box = $("#poll-options");
+    if (box.children.length >= MAX_POLL_OPTIONS) return;
+    renderPollOptionInputs(box.children.length + 1);
+  });
+  $("#poll-create-btn").addEventListener("click", async () => {
+    const question = $("#poll-question").value.trim();
+    const options = Array.from($("#poll-options").querySelectorAll(".poll-option-input"))
+      .map((i) => i.value.trim())
+      .filter(Boolean);
+    if (!question) {
+      setMsg("#poll-msg", "Give the poll a question.", "error");
+      return;
+    }
+    if (options.length < 2) {
+      setMsg("#poll-msg", "Add at least 2 options.", "error");
+      return;
+    }
+    if (!me || (inDm() ? !currentDm : !currentServer || !currentTextChannel)) return;
+    try {
+      await addDoc(messagesCol(), {
+        type: "poll",
+        question,
+        pollOptions: options.map((text, i) => ({ id: "opt" + i, text })),
+        multi: $("#poll-multi").checked,
+        votes: {},
+        text: "",
+        uid: me.uid,
+        displayName: me.displayName,
+        avatarEmoji: me.avatarEmoji,
+        mentions: [],
+        createdAt: serverTimestamp(),
+      });
+      noteDmActivity("📊 " + question);
+      notePostActivity();
+      closeModal("poll-modal");
+    } catch (e) {
+      setMsg("#poll-msg", "Couldn't create poll: " + e.message, "error");
+    }
+  });
+
+  async function votePoll(msgId, m, optionId) {
+    if (!me) return;
+    const mine = (m.votes && m.votes[me.uid]) || [];
+    let next;
+    if (m.multi) {
+      next = mine.includes(optionId) ? mine.filter((o) => o !== optionId) : mine.concat([optionId]);
+    } else {
+      next = mine.length === 1 && mine[0] === optionId ? [] : [optionId];
+    }
+    try {
+      if (next.length) await updateDoc(doc(messagesCol(), msgId), { ["votes." + me.uid]: next });
+      else await updateDoc(doc(messagesCol(), msgId), { ["votes." + me.uid]: deleteField() });
+    } catch (e) {
+      alert("Couldn't vote: " + e.message);
+    }
+  }
+
+  function renderPoll(m, msgId) {
+    const card = document.createElement("div");
+    card.className = "poll-card";
+    const q = document.createElement("div");
+    q.className = "poll-question";
+    q.innerHTML = ICONS.poll;
+    const qText = document.createElement("span");
+    qText.textContent = m.question;
+    q.appendChild(qText);
+    card.appendChild(q);
+
+    const votes = m.votes || {};
+    const counts = {};
+    let total = 0;
+    const mine = (me && votes[me.uid]) || [];
+    (m.pollOptions || []).forEach((o) => (counts[o.id] = 0));
+    Object.values(votes).forEach((arr) => {
+      (arr || []).forEach((id) => {
+        if (id in counts) {
+          counts[id]++;
+          total++;
+        }
+      });
+    });
+
+    (m.pollOptions || []).forEach((o) => {
+      const n = counts[o.id] || 0;
+      const pct = total ? Math.round((n / total) * 100) : 0;
+      const selected = mine.includes(o.id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "poll-option" + (selected ? " selected" : "");
+      row.disabled = !me;
+      const fill = document.createElement("div");
+      fill.className = "poll-option-fill";
+      fill.style.width = pct + "%";
+      row.appendChild(fill);
+      const label = document.createElement("span");
+      label.className = "poll-option-label";
+      label.textContent = o.text;
+      const stat = document.createElement("span");
+      stat.className = "poll-option-stat";
+      stat.textContent = n + " · " + pct + "%";
+      row.appendChild(label);
+      row.appendChild(stat);
+      row.addEventListener("click", () => votePoll(msgId, m, o.id));
+      card.appendChild(row);
+    });
+
+    const footer = document.createElement("div");
+    footer.className = "poll-footer";
+    footer.textContent = total + (total === 1 ? " vote" : " votes") + (m.multi ? " · pick any" : " · pick one");
+    card.appendChild(footer);
+    return card;
   }
 
   // ---------- direct messages ----------

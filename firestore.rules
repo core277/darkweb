@@ -42,6 +42,13 @@ service cloud.firestore {
           && (request.auth.uid in d.memberPerms)
           && (p in d.memberPerms[request.auth.uid]);
     }
+    // Lets anyone vote on a poll message by touching only their own key in its votes map -
+    // question, options and everything else stay locked once the poll is posted.
+    function pollVoteOnly() {
+      return resource.data.type == 'poll'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+          && resource.data.votes.diff(request.resource.data.votes).affectedKeys().hasOnly([request.auth.uid]);
+    }
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -84,7 +91,7 @@ service cloud.firestore {
         allow read: if canUseDm();
         allow create: if canUseDm() && isNotBanned() && request.resource.data.uid == request.auth.uid;
         allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
-        allow update: if false;
+        allow update: if canUseDm() && isNotBanned() && pollVoteOnly();
       }
 
       // 1:1 voice/video calls, signaled the same way as server voice channels.
@@ -154,7 +161,7 @@ service cloud.firestore {
           allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
           allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
                         || (isSignedIn() && resource.data.uid == request.auth.uid);
-          allow update: if false;
+          allow update: if canAccess(serverId) && isNotBanned() && pollVoteOnly();
         }
 
         // Forum channels: posts (threads) with their own message lists.
@@ -171,7 +178,7 @@ service cloud.firestore {
             allow create: if canAccess(serverId) && isNotBanned() && request.resource.data.uid == request.auth.uid;
             allow delete: if canManage(serverId) || hasPerm(serverId, 'manageMessages')
                           || (isSignedIn() && resource.data.uid == request.auth.uid);
-            allow update: if false;
+            allow update: if canAccess(serverId) && isNotBanned() && pollVoteOnly();
           }
         }
       }
