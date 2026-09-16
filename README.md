@@ -48,6 +48,15 @@ docs/                     <- published via GitHub Pages
 firestore.rules            Firestore security rules (paste into the Firebase console)
 ```
 
+## Install page unlock
+
+The install page (`docs/index.html`) opens as a real, fully-working calculator themed "Dark Web
+Launch Console — Locked". Enter an expression that evaluates to **1337** and press **=** to reveal
+the install instructions, bookmarklet links, and a copy-paste box with the raw bookmarklet code (for
+when the "Copy Link" long-press doesn't work well on iOS). It's a hacker-themed puzzle gate, not a
+disguise — the page's `<title>`, this README, and the repo are all upfront about what the site is.
+Change `UNLOCK_VALUE` in `docs/index.html` if you want a different code.
+
 ## Setup
 
 ### 1. Create a Firebase project

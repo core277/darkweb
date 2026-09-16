@@ -6,40 +6,125 @@
 <title>Dark Web — Install</title>
 <link rel="icon" type="image/svg+xml" href="logo.svg" />
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0c1e; color: #e8e6f0; max-width: 680px; margin: 0 auto; padding: 32px 20px 80px; line-height: 1.5; }
-  h1 { color: #b895ff; margin-bottom: 4px; }
-  h2 { color: #e8e6f0; margin-top: 36px; border-bottom: 1px solid #2a2545; padding-bottom: 6px; }
+  :root {
+    --bg: #0f0c1e; --card: #1b1730; --card2: #201c38; --text: #e8e6f0; --muted: #a9a4c4;
+    --accent: #b895ff; --accent2: #5ad1c9; --key: #2a2545; --keyhover: #35305a; --op: #443a7a;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); max-width: 680px; margin: 0 auto; padding: 32px 20px 80px; line-height: 1.5; }
+  h1 { color: var(--accent); margin-bottom: 4px; }
+  h2 { color: var(--text); margin-top: 36px; border-bottom: 1px solid #2a2545; padding-bottom: 6px; }
   a.bookmarklet { display: inline-block; background: linear-gradient(135deg, #8a5cf6, #5ad1c9); color: #0f0c1e; font-weight: 700; padding: 10px 18px; border-radius: 8px; text-decoration: none; }
-  code, pre { background: #1b1730; border-radius: 6px; padding: 2px 6px; color: #c9c5e0; }
+  code, pre { background: var(--card); border-radius: 6px; padding: 2px 6px; color: #c9c5e0; }
   pre { padding: 12px; overflow-x: auto; }
   ol, ul { padding-left: 22px; }
-  .note { background: #1b1730; border-left: 3px solid #8a5cf6; padding: 10px 14px; border-radius: 6px; font-size: 14px; color: #c9c5e0; }
+  .note { background: var(--card); border-left: 3px solid #8a5cf6; padding: 10px 14px; border-radius: 6px; font-size: 14px; color: #c9c5e0; }
+  [hidden] { display: none !important; }
+
+  /* ---- calculator gate ---- */
+  #gate { display: flex; flex-direction: column; align-items: center; padding: 40px 0 20px; }
+  #gate .gate-title { color: var(--accent); font-weight: 700; letter-spacing: 0.08em; font-size: 13px; text-transform: uppercase; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+  #gate .gate-title img { width: 20px; height: 20px; }
+  .calc { width: min(92vw, 300px); background: var(--card); border-radius: 20px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+  .calc-screen { background: #0a0817; border-radius: 12px; padding: 20px 16px; text-align: right; margin-bottom: 16px; min-height: 76px; overflow: hidden; }
+  .calc-expr { color: var(--muted); font-size: 13px; min-height: 16px; word-break: break-all; }
+  .calc-value { color: var(--text); font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .calc-grid button { border: none; border-radius: 12px; padding: 16px 0; font-size: 18px; font-weight: 600; color: var(--text); background: var(--key); cursor: pointer; transition: background 0.1s, transform 0.05s; }
+  .calc-grid button:hover { background: var(--keyhover); }
+  .calc-grid button:active { transform: scale(0.95); }
+  .calc-grid button.op { background: var(--op); color: #fff; }
+  .calc-grid button.op:hover { background: #574aa0; }
+  .calc-grid button.wide { grid-column: span 2; }
+  .calc-grid button.equals { background: linear-gradient(135deg, #8a5cf6, #5ad1c9); color: #0f0c1e; }
+  .gate-unlocked-msg { color: var(--accent2); font-weight: 600; margin-top: 16px; opacity: 0; transition: opacity 0.4s; }
+  .gate-unlocked-msg.show { opacity: 1; }
+  #install-content { animation: fadeIn 0.5s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---- copy box ---- */
+  .copy-box { background: var(--card); border-radius: 8px; padding: 14px; margin: 10px 0; }
+  .copy-box textarea {
+    width: 100%; min-height: 90px; resize: vertical; background: #0a0817; color: #c9c5e0;
+    border: 1px solid #2a2545; border-radius: 6px; padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.4;
+  }
+  .copy-box .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .copy-btn { background: linear-gradient(135deg, #8a5cf6, #5ad1c9); color: #0f0c1e; font-weight: 700; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+  .copy-status { font-size: 13px; color: var(--accent2); min-height: 18px; }
 </style>
 </head>
 <body>
-  <h1><img src="logo.svg" alt="" style="width:56px;height:56px;vertical-align:middle;margin-right:10px" />Dark Web</h1>
-  <p>A live chat + voice server you launch from a browser bookmark instead of typing a URL.</p>
 
-  <h2>Install on iPad (Safari)</h2>
-  <ol>
-    <li>Tap the Share icon on any page, then <strong>Add Bookmark</strong>. Save it (the name doesn't matter — e.g. "Dark Web").</li>
-    <li>Tap and hold this link, then choose <strong>Copy Link</strong>:<br /><br />
-      <a class="bookmarklet" id="bookmarklet-link" href="#">Launch Dark Web</a>
-    </li>
-    <li>Open your Bookmarks list, tap <strong>Edit</strong>, tap the bookmark you just made.</li>
-    <li>Clear its address field, paste (this replaces it with the copied code), then tap <strong>Done</strong>.</li>
-    <li>On any webpage, tap that bookmark to open Dark Web.</li>
-  </ol>
+  <div id="gate">
+    <div class="gate-title"><img src="logo.svg" alt="" />Dark Web Launch Console — Locked</div>
+    <div class="calc">
+      <div class="calc-screen">
+        <div class="calc-expr" id="calc-expr">&nbsp;</div>
+        <div class="calc-value" id="calc-value">0</div>
+      </div>
+      <div class="calc-grid">
+        <button data-act="clear">C</button>
+        <button data-act="backspace">⌫</button>
+        <button data-act="op" data-op="/" class="op">÷</button>
+        <button data-act="op" data-op="*" class="op">×</button>
 
-  <h2>Install on desktop</h2>
-  <p>Drag this link to your bookmarks bar, then click it on any page:</p>
-  <p><a class="bookmarklet" id="bookmarklet-link-2" href="#">Launch Dark Web</a></p>
+        <button data-act="digit" data-val="7">7</button>
+        <button data-act="digit" data-val="8">8</button>
+        <button data-act="digit" data-val="9">9</button>
+        <button data-act="op" data-op="-" class="op">−</button>
 
-  <h2>Notes</h2>
-  <div class="note">
-    Voice calling needs microphone access, which browsers only grant on secure (HTTPS) pages. Launch
-    Dark Web from an HTTPS page for voice to work. Some sites also block injected scripts via a strict
-    Content-Security-Policy — if the bookmarklet does nothing, try launching it from this page instead.
+        <button data-act="digit" data-val="4">4</button>
+        <button data-act="digit" data-val="5">5</button>
+        <button data-act="digit" data-val="6">6</button>
+        <button data-act="op" data-op="+" class="op">+</button>
+
+        <button data-act="digit" data-val="1">1</button>
+        <button data-act="digit" data-val="2">2</button>
+        <button data-act="digit" data-val="3">3</button>
+        <button data-act="equals" class="equals" style="grid-row: span 2;">=</button>
+
+        <button data-act="digit" data-val="0" class="wide">0</button>
+        <button data-act="digit" data-val=".">.</button>
+      </div>
+    </div>
+    <div class="gate-unlocked-msg" id="gate-unlocked">🔓 Unlocked</div>
+  </div>
+
+  <div id="install-content" hidden>
+    <h1><img src="logo.svg" alt="" style="width:56px;height:56px;vertical-align:middle;margin-right:10px" />Dark Web</h1>
+    <p>A live chat + voice server you launch from a browser bookmark instead of typing a URL.</p>
+
+    <h2>Install on iPad (Safari)</h2>
+    <ol>
+      <li>Tap the Share icon on any page, then <strong>Add Bookmark</strong>. Save it (the name doesn't matter — e.g. "Dark Web").</li>
+      <li>Tap and hold this link, then choose <strong>Copy Link</strong> — or use the copy box below instead, if that doesn't work:<br /><br />
+        <a class="bookmarklet" id="bookmarklet-link" href="#">Launch Dark Web</a>
+      </li>
+      <li>Open your Bookmarks list, tap <strong>Edit</strong>, tap the bookmark you just made.</li>
+      <li>Clear its address field, paste (this replaces it with the copied code), then tap <strong>Done</strong>.</li>
+      <li>On any webpage, tap that bookmark to open Dark Web.</li>
+    </ol>
+
+    <div class="copy-box">
+      <div class="calc-expr" style="margin-bottom: 6px;">Bookmarklet code — tap the box to select it all, or use Copy:</div>
+      <textarea id="raw-code" readonly onclick="this.select()"></textarea>
+      <div class="row">
+        <button class="copy-btn" id="copy-code-btn">Copy code</button>
+        <span class="copy-status" id="copy-status"></span>
+      </div>
+    </div>
+
+    <h2>Install on desktop</h2>
+    <p>Drag this link to your bookmarks bar, then click it on any page:</p>
+    <p><a class="bookmarklet" id="bookmarklet-link-2" href="#">Launch Dark Web</a></p>
+
+    <h2>Notes</h2>
+    <div class="note">
+      Voice calling needs microphone access, which browsers only grant on secure (HTTPS) pages. Launch
+      Dark Web from an HTTPS page for voice to work. Some sites also block injected scripts via a strict
+      Content-Security-Policy — if the bookmarklet does nothing, try launching it from this page instead.
+    </div>
   </div>
 
   <script>
@@ -51,6 +136,122 @@
       "+'?t='+Date.now();document.body.appendChild(s);})();";
     document.getElementById("bookmarklet-link").setAttribute("href", code);
     document.getElementById("bookmarklet-link-2").setAttribute("href", code);
+    document.getElementById("raw-code").value = code;
+
+    document.getElementById("copy-code-btn").addEventListener("click", async () => {
+      const status = document.getElementById("copy-status");
+      try {
+        await navigator.clipboard.writeText(code);
+        status.textContent = "Copied!";
+      } catch (e) {
+        const ta = document.getElementById("raw-code");
+        ta.select();
+        try {
+          document.execCommand("copy");
+          status.textContent = "Copied!";
+        } catch (e2) {
+          status.textContent = "Couldn't copy automatically — select the text above and copy it manually.";
+        }
+      }
+      setTimeout(() => (status.textContent = ""), 2500);
+    });
+
+    // ---- calculator gate ----
+    // A genuine, fully-working calculator. Entering an expression that evaluates
+    // to the secret number below and pressing "=" reveals the install instructions.
+    const UNLOCK_VALUE = 1337;
+    let current = "0";
+    let previous = null;
+    let pendingOp = null;
+    let justEvaluated = false;
+
+    const exprEl = document.getElementById("calc-expr");
+    const valueEl = document.getElementById("calc-value");
+    const opSymbols = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+
+    function formatNum(n) {
+      if (!isFinite(n)) return "Error";
+      const rounded = Math.round(n * 1e9) / 1e9;
+      return String(rounded);
+    }
+    function render() {
+      valueEl.textContent = current;
+      exprEl.textContent = previous !== null && pendingOp ? previous + " " + opSymbols[pendingOp] + " " : " ";
+    }
+    function inputDigit(d) {
+      if (justEvaluated) {
+        current = d === "." ? "0." : d;
+        justEvaluated = false;
+      } else if (d === ".") {
+        if (!current.includes(".")) current += ".";
+      } else if (current === "0") {
+        current = d;
+      } else {
+        current += d;
+      }
+      render();
+    }
+    function applyPending() {
+      if (previous === null || pendingOp === null) return parseFloat(current);
+      const a = parseFloat(previous);
+      const b = parseFloat(current);
+      let r;
+      if (pendingOp === "+") r = a + b;
+      else if (pendingOp === "-") r = a - b;
+      else if (pendingOp === "*") r = a * b;
+      else if (pendingOp === "/") r = b === 0 ? NaN : a / b;
+      return r;
+    }
+    function inputOp(op) {
+      if (previous !== null && pendingOp !== null && !justEvaluated) {
+        current = formatNum(applyPending());
+      }
+      previous = current;
+      pendingOp = op;
+      justEvaluated = true; // next digit starts a fresh number
+      render();
+    }
+    function inputEquals() {
+      const result = pendingOp === null ? parseFloat(current) : applyPending();
+      current = formatNum(result);
+      previous = null;
+      pendingOp = null;
+      justEvaluated = true;
+      render();
+      if (result === UNLOCK_VALUE) unlock();
+    }
+    function clearAll() {
+      current = "0";
+      previous = null;
+      pendingOp = null;
+      justEvaluated = false;
+      render();
+    }
+    function backspace() {
+      if (justEvaluated) return;
+      current = current.length > 1 ? current.slice(0, -1) : "0";
+      render();
+    }
+    function unlock() {
+      document.getElementById("gate-unlocked").classList.add("show");
+      setTimeout(() => {
+        document.getElementById("gate").hidden = true;
+        document.getElementById("install-content").hidden = false;
+        document.getElementById("install-content").scrollIntoView({ behavior: "smooth" });
+      }, 700);
+    }
+
+    document.querySelector(".calc-grid").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === "digit") inputDigit(btn.dataset.val);
+      else if (act === "op") inputOp(btn.dataset.op);
+      else if (act === "equals") inputEquals();
+      else if (act === "clear") clearAll();
+      else if (act === "backspace") backspace();
+    });
+    render();
   </script>
 </body>
 </html>
