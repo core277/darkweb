@@ -121,7 +121,7 @@ const TEMPLATE = `
 
   <div id="app-screen" hidden>
     <nav id="server-rail">
-      <div class="rail-home" title="Dark Web">${ICONS.logo}</div>
+      <div class="rail-home" title="Dark Web">${ICONS.logo}<span id="home-badge" class="rail-badge" hidden></span></div>
       <button id="dm-rail-btn" class="rail-icon rail-dm" title="Direct Messages">${ICONS.chat}<span id="dm-badge" class="rail-badge" hidden></span></button>
       <div class="rail-sep"></div>
       <div id="server-list"></div>
@@ -526,8 +526,10 @@ const TEMPLATE = `
   const voiceParticipants = new Map();
   const voiceListeners = new Map();
   const remoteAudioEls = new Map();
+  let pingsByServer = new Map(); // serverId -> ping docs (unread @mentions in that server)
   let unsubServers = null;
   let unsubHome = null;
+  let unsubPings = null;
   let unsubMessages = null;
   let unsubChannels = null;
   let unsubUsers = null;
@@ -727,7 +729,9 @@ const TEMPLATE = `
     if (unsubMe) unsubMe();
     if (unsubDms) unsubDms();
     if (unsubDmMessages) unsubDmMessages();
-    unsubServers = unsubHome = unsubUsers = unsubMe = unsubDms = unsubDmMessages = null;
+    if (unsubPings) unsubPings();
+    unsubServers = unsubHome = unsubUsers = unsubMe = unsubDms = unsubDmMessages = unsubPings = null;
+    pingsByServer = new Map();
     homeServer = null;
     homeJoinAttempted = false;
     dms = [];
@@ -949,6 +953,7 @@ const TEMPLATE = `
         subscribeUsers();
         subscribeHome();
         subscribeDms();
+        subscribePings();
       }
       if (firstLoad || me.role !== lastRole) subscribeServers();
       lastRole = me.role;
@@ -1219,12 +1224,22 @@ const TEMPLATE = `
     if (homeServer) selectServer(homeServer, true);
   });
 
+  function pingBadge(count) {
+    const b = document.createElement("span");
+    b.className = "rail-badge";
+    b.textContent = count > 9 ? "9+" : String(count);
+    return b;
+  }
+
   function renderRail() {
     const home = $(".rail-home");
     home.classList.toggle("active", !inDm() && !!(currentServer && currentServer.isHome));
     $("#dm-rail-btn").classList.toggle("active", inDm());
     home.classList.toggle("disabled", !homeServer);
     home.title = homeServer ? homeServer.name + " (everyone)" : "Home server not set up yet";
+    const homeCount = homeServer ? (pingsByServer.get(homeServer.id) || []).length : 0;
+    $("#home-badge").hidden = homeCount === 0;
+    $("#home-badge").textContent = homeCount > 9 ? "9+" : String(homeCount);
     const list = $("#server-list");
     list.innerHTML = "";
     servers.filter((s) => s.id !== HOME_ID).forEach((s) => {
@@ -1243,6 +1258,8 @@ const TEMPLATE = `
         el.textContent = serverInitials(s.name);
       }
       el.style.setProperty("--accent", avatarColor(s.id));
+      const pings = pingsByServer.get(s.id) || [];
+      if (pings.length) el.appendChild(pingBadge(pings.length));
       el.addEventListener("click", () => selectServer(s, true));
       list.appendChild(el);
     });
@@ -1255,6 +1272,7 @@ const TEMPLATE = `
     currentServer = s;
     safeSet("darkweb:lastServer", s.id);
     if (inDm() && userInitiated) leaveDmView();
+    clearServerPings(s.id);
     renderRail();
     renderServerHeader();
     renderMembers();
@@ -2112,6 +2130,7 @@ const TEMPLATE = `
     }
     if (!currentServer || !currentTextChannel || currentTextChannel.type !== "forum") return;
     const ch = currentTextChannel;
+    const postMentions = renderRichText(document.createElement("div"), body).uids;
     const postRef = doc(postsCol(ch));
     const batch = writeBatch(db);
     batch.set(postRef, {
@@ -2127,13 +2146,14 @@ const TEMPLATE = `
       uid: me.uid,
       displayName: me.displayName,
       avatarEmoji: me.avatarEmoji,
-      mentions: renderRichText(document.createElement("div"), body).uids,
+      mentions: postMentions,
       createdAt: serverTimestamp(),
     });
     try {
       await batch.commit();
       closeModal("new-post-modal");
       openPost({ id: postRef.id, title, uid: me.uid, displayName: me.displayName });
+      firePings(postMentions, title + ": " + body);
     } catch (e) {
       setMsg("#new-post-msg", "Couldn't post: " + e.message, "error");
     }
@@ -2478,6 +2498,7 @@ const TEMPLATE = `
       await addDoc(messagesCol(), payload);
       noteDmActivity(text || "Sent an image");
       notePostActivity();
+      firePings(payload.mentions, text);
     } catch (e) {
       alert("Couldn't send: " + e.message);
     }
@@ -2754,6 +2775,57 @@ const TEMPLATE = `
       },
       (err) => console.error("Dark Web: dms listener", err)
     );
+  }
+
+  // ---------- @mention pings (server notification badges) ----------
+  // Fanned out on write to pings/{recipientUid}/items so a client only ever needs to
+  // watch its own subcollection - no cross-server listeners or indexes required.
+  function subscribePings() {
+    if (unsubPings) unsubPings();
+    unsubPings = onSnapshot(
+      collection(db, "pings", me.uid, "items"),
+      (qs) => {
+        pingsByServer = new Map();
+        qs.forEach((d) => {
+          const p = d.data();
+          if (!pingsByServer.has(p.serverId)) pingsByServer.set(p.serverId, []);
+          pingsByServer.get(p.serverId).push({ id: d.id, ...p });
+        });
+        if (!inDm() && currentServer && pingsByServer.has(currentServer.id)) clearServerPings(currentServer.id);
+        renderRail();
+      },
+      (err) => console.error("Dark Web: pings listener", err)
+    );
+  }
+
+  function clearServerPings(sid) {
+    const items = pingsByServer.get(sid);
+    if (!items || !items.length) return;
+    pingsByServer.delete(sid);
+    items.forEach((it) => deleteDoc(doc(db, "pings", me.uid, "items", it.id)).catch(() => {}));
+    renderRail();
+  }
+
+  function firePings(mentionUids, text) {
+    if (!me || inDm() || !currentServer || !currentTextChannel || !mentionUids || !mentionUids.length) return;
+    let targets;
+    if (mentionUids.includes("everyone")) {
+      const pool = currentServer.isHome ? allUsers().map((u) => u.uid) : currentServer.memberIds || [];
+      targets = pool.filter((uid) => uid !== me.uid);
+    } else {
+      targets = Array.from(new Set(mentionUids.filter((uid) => uid !== "everyone" && uid !== me.uid)));
+    }
+    targets.forEach((uid) => {
+      addDoc(collection(db, "pings", uid, "items"), {
+        serverId: currentServer.id,
+        channelId: currentTextChannel.id,
+        channelName: currentTextChannel.name,
+        fromUid: me.uid,
+        fromName: me.displayName,
+        text: (text || "").slice(0, 80),
+        createdAt: serverTimestamp(),
+      }).catch(() => {});
+    });
   }
 
   function renderDmBadge() {

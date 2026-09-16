@@ -87,6 +87,16 @@ service cloud.firestore {
       }
     }
 
+    // @mention notifications: fanned out on write to the recipient's own subcollection so a
+    // client only ever watches its own pings, no cross-server listeners or indexes needed.
+    match /pings/{uid}/items/{itemId} {
+      allow read, delete: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isNotBanned()
+                    && request.resource.data.fromUid == request.auth.uid
+                    && canAccess(request.resource.data.serverId);
+      allow update: if false;
+    }
+
     match /servers/{serverId} {
       function onlyMembersChanged() {
         return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds']);
