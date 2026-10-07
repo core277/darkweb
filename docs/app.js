@@ -534,6 +534,9 @@ const TEMPLATE = `
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
+  // TEMP diagnostic hook - lets a signed-in tester probe the live auth/db state from the
+  // console without a second parallel Firebase connection. Remove once voice join is fixed.
+  window.__DARKWEB_DEBUG__ = { auth, db };
 
   // ---------- state ----------
   let me = null;
