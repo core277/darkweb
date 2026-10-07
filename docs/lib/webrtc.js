@@ -76,10 +76,10 @@ export class VoiceManager {
       existing = await getDocs(this._participants());
     } catch (e) {
       this.base = null;
+      console.error("Dark Web voice: couldn't list participants at", pathSegments.join("/"), e);
       this.onError(
-        e && e.code === "permission-denied"
-          ? "Access denied. If you run this Dark Web instance, the Firestore rules need publishing (see the README)."
-          : "Couldn't check who's already here: " + (e && e.message ? e.message : "unknown error")
+        "Access denied reading " + pathSegments.join("/") + "/participants (" + (e && e.code) + "): " +
+        (e && e.message ? e.message : "unknown error")
       );
       return false;
     }
@@ -116,10 +116,10 @@ export class VoiceManager {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
       this.base = null;
+      console.error("Dark Web voice: couldn't write participant doc at", pathSegments.join("/"), e);
       this.onError(
-        e && e.code === "permission-denied"
-          ? "Access denied. If you run this Dark Web instance, the Firestore rules need publishing (see the README)."
-          : "Couldn't join: " + (e && e.message ? e.message : "unknown error")
+        "Access denied writing " + pathSegments.join("/") + "/participants/" + this.uid + " (" + (e && e.code) + "): " +
+        (e && e.message ? e.message : "unknown error")
       );
       return false;
     }
