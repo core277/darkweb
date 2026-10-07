@@ -59,6 +59,13 @@ service cloud.firestore {
     function messageUpdateOk() {
       return pollVoteOnly() || reactionsOnly();
     }
+    // Voice/call presence docs have no server-side "disconnect" signal, so each client touches
+    // its own doc on an interval to prove it's still actually there; a doc whose lastSeen goes
+    // stale is treated client-side as no longer present even though the doc itself lingers.
+    // Only that one field may move, and only the doc's own owner may move it.
+    function presenceHeartbeatOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen']);
+    }
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -108,7 +115,7 @@ service cloud.firestore {
       match /call/{callId}/participants/{userId} {
         allow read: if canUseDm();
         allow create, delete: if canUseDm() && request.auth.uid == userId && isNotBanned();
-        allow update: if false;
+        allow update: if canUseDm() && request.auth.uid == userId && isNotBanned() && presenceHeartbeatOnly();
       }
       match /call/{callId}/signals/{signalId} {
         allow read: if canUseDm();
@@ -196,7 +203,7 @@ service cloud.firestore {
       match /voiceChannels/{channelId}/participants/{userId} {
         allow read: if canAccess(serverId);
         allow create, delete: if canAccess(serverId) && request.auth.uid == userId && isNotBanned();
-        allow update: if false;
+        allow update: if canAccess(serverId) && request.auth.uid == userId && isNotBanned() && presenceHeartbeatOnly();
       }
 
       match /voiceChannels/{channelId}/signals/{signalId} {

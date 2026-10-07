@@ -131,7 +131,17 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   Lords** leaderboard tab ranks the top holders server-wide, crowning #1. Balances live on
   `users/{uid}.volts` / `.lastClaimAt`, and every bet is settled with a Firestore transaction so two
   rapid spins (or two tabs) can never push a balance negative. No rules changes are needed for this
-  feature — it rides on the existing "you can always edit your own user doc" rule.
+  feature — it rides on the existing "you can always edit your own user doc" rule. The bet amount is
+  always clamped to your real balance, no matter what gets typed into the box. **Site admins** can
+  give (or take away) Volts from anyone in **Site Admin → All Users → ⚡ Volts**.
+- **Voice/call presence**: Firestore has no server-side "someone disconnected" signal, so a closed
+  tab, dead network, or crash used to leave a permanent "ghost" entry in a voice channel or call —
+  showing someone as present who's long gone. Each client now touches its own participant doc every
+  15s (`lastSeen`); anyone whose heartbeat goes quiet for ~35s is treated as not actually there,
+  everywhere that list is shown (sidebar, call panel, DM call banner), rechecked every 10s so a
+  ghost fades out on its own even with no new Firestore writes to react to. Requires the rules
+  below (a narrow `update` exception letting a participant touch only their own `lastSeen` field —
+  everything else about that doc is still locked).
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
   the **Site Admin** panel (all servers, all users, promote/ban/delete). Deleting an account wipes

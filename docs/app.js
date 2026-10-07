@@ -17,6 +17,10 @@ const AVATAR_CHOICES = [
 const AVATAR_COLORS = ["#5865f2", "#57f287", "#eb459e", "#ed4245", "#faa61a", "#3ba55c", "#7289da", "#e67e22"];
 const ONLINE_WINDOW_MS = 150000;
 const HEARTBEAT_MS = 60000;
+// Must stay well above lib/webrtc.js's PRESENCE_HEARTBEAT_MS (15s) so a couple of missed beats
+// don't flicker someone out of a call they're actually still in.
+const PRESENCE_STALE_MS = 35000;
+const PRESENCE_RECHECK_MS = 10000;
 const GROUP_WINDOW_MS = 7 * 60 * 1000;
 const MESSAGE_LIMIT = 100;
 const MAX_IMAGE_BYTES = 700000;
@@ -577,6 +581,7 @@ const TEMPLATE = `
   let unsubMe = null;
   let heartbeatTimer = null;
   let membersRefreshTimer = null;
+  let presenceTimer = null;
 
   // ---------- helpers ----------
   const safeGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -624,6 +629,18 @@ const TEMPLATE = `
   }
 
   const profileFor = (uid, fallback) => usersCache.get(uid) || fallback || {};
+
+  // A voice/call participant doc can outlive the tab that created it (closed tab, dead network,
+  // crash - there's no server-side "disconnect" to clean it up). Treat one whose heartbeat has
+  // gone quiet as not actually present, even though the doc itself is still sitting there.
+  function isPresenceStale(p) {
+    const t = p.lastSeen && p.lastSeen.toMillis ? p.lastSeen.toMillis() : p.joinedAt && p.joinedAt.toMillis ? p.joinedAt.toMillis() : null;
+    if (t == null) return false; // just joined - serverTimestamp hasn't resolved locally yet
+    return Date.now() - t > PRESENCE_STALE_MS;
+  }
+  function livePresence(list) {
+    return (list || []).filter((p) => p.uid === (me && me.uid) || !isPresenceStale(p));
+  }
   const isGlobalAdmin = () => me && me.role === "admin";
   const canManage = (s) => !!(me && s && (isGlobalAdmin() || s.ownerUid === me.uid));
   const hasPerm = (s, p) => !!(me && s && (canManage(s) || ((s.memberPerms || {})[me.uid] || []).includes(p)));
@@ -784,7 +801,8 @@ const TEMPLATE = `
     $("#channel-header-icon").innerHTML = ICONS.hash;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (membersRefreshTimer) clearInterval(membersRefreshTimer);
-    heartbeatTimer = membersRefreshTimer = null;
+    if (presenceTimer) clearInterval(presenceTimer);
+    heartbeatTimer = membersRefreshTimer = presenceTimer = null;
   }
 
   async function leaveVoice() {
@@ -1029,6 +1047,18 @@ const TEMPLATE = `
       renderMembers();
       renderUserPanel();
     }, HEARTBEAT_MS);
+    // Voice/call participant docs have no "disconnect" signal (a closed tab or dead network
+    // just stops updating), so a ghost entry only drops off the UI once its heartbeat goes
+    // stale - which needs a timer, not just reacting to Firestore snapshots, since a truly
+    // abandoned doc never fires another snapshot event on its own.
+    presenceTimer = setInterval(() => {
+      renderChannels();
+      if (currentVoiceChannel || currentVoiceDm) {
+        renderVoicePeers();
+        renderStage();
+      }
+      if (inDm()) renderDmCallUi();
+    }, PRESENCE_RECHECK_MS);
   }
 
   // ---------- users ----------
@@ -1938,7 +1968,7 @@ const TEMPLATE = `
     if (!isVoice) return el;
     const wrap = document.createElement("div");
     wrap.appendChild(el);
-    const parts = voiceParticipants.get(c.id) || [];
+    const parts = livePresence(voiceParticipants.get(c.id) || []);
     if (parts.length) {
       const ul = document.createElement("div");
       ul.className = "voice-members";
@@ -2376,6 +2406,12 @@ const TEMPLATE = `
     const amt = $("#casino-balance-amt");
     if (!amt) return;
     amt.textContent = (me.volts || 0).toLocaleString();
+    const cap = Math.max(10, me.volts || 0);
+    [$("#slot-bet"), $("#wheel-bet")].forEach((inp) => {
+      if (!inp) return;
+      inp.max = cap;
+      if (Number(inp.value) > cap) inp.value = cap;
+    });
     const btn = $("#casino-claim-btn");
     const hint = $("#casino-claim-hint");
     if (!btn || !hint) return;
@@ -2493,11 +2529,14 @@ const TEMPLATE = `
     if (!me || currentTextChannel.type !== "casino") return;
     const betInput = $("#slot-bet");
     const btn = $("#slot-spin-btn");
-    const bet = Math.max(10, Math.floor(Number(betInput.value) || 0));
-    if ((me.volts || 0) < bet) {
+    if ((me.volts || 0) < 10) {
       setMsg("#casino-msg", "You don't have enough Volts for that bet.", "error");
       return;
     }
+    // Clamp to the real balance — a mistyped or pasted huge number (e.g. "166888888") must
+    // never be treated as the real bet, even though the transaction below would also reject it.
+    const bet = Math.min(me.volts, Math.max(10, Math.floor(Number(betInput.value) || 0)));
+    betInput.value = bet;
     btn.disabled = true;
     setMsg("#casino-msg", "");
     const a = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
@@ -2535,11 +2574,12 @@ const TEMPLATE = `
     if (!me || currentTextChannel.type !== "casino") return;
     const betInput = $("#wheel-bet");
     const btn = $("#wheel-spin-btn");
-    const bet = Math.max(10, Math.floor(Number(betInput.value) || 0));
-    if ((me.volts || 0) < bet) {
+    if ((me.volts || 0) < 10) {
       setMsg("#casino-msg", "You don't have enough Volts for that bet.", "error");
       return;
     }
+    const bet = Math.min(me.volts, Math.max(10, Math.floor(Number(betInput.value) || 0)));
+    betInput.value = bet;
     btn.disabled = true;
     setMsg("#casino-msg", "");
     const seg = pickWheelSegment();
@@ -3446,7 +3486,7 @@ const TEMPLATE = `
       collection(db, "dms", target, "call", "current", "participants"),
       (qs) => {
         dmCallParticipants = qs.docs.map((d) => ({ uid: d.id, ...d.data() }));
-        if (!dmCallParticipants.some((p) => p.uid !== me.uid)) declinedDmCall = null;
+        if (!livePresence(dmCallParticipants).some((p) => p.uid !== me.uid)) declinedDmCall = null;
         renderDmCallUi();
         renderStage();
         renderVoicePeers();
@@ -3471,11 +3511,12 @@ const TEMPLATE = `
     }
     const inThisCall = currentVoiceDm === currentDm.id;
     const dmCallActive = dmCallListenerId === currentDm.id;
-    const otherJoined = dmCallActive && dmCallParticipants.some((p) => p.uid !== me.uid);
+    const liveOthers = dmCallActive ? livePresence(dmCallParticipants).filter((p) => p.uid !== me.uid) : [];
+    const otherJoined = liveOthers.length > 0;
     callBtn.hidden = inThisCall || otherJoined;
     banner.hidden = !(otherJoined && !inThisCall && declinedDmCall !== currentDm.id);
     if (otherJoined) {
-      const other = dmCallParticipants.find((p) => p.uid !== me.uid);
+      const other = liveOthers[0];
       const prof = profileFor(other.uid, other);
       $("#incoming-call-text").textContent = (prof.displayName || "Someone") + " is calling…";
     }
@@ -3919,8 +3960,8 @@ const TEMPLATE = `
   }
 
   function activeCallParticipants() {
-    if (currentVoiceDm) return dmCallParticipants;
-    if (currentVoiceChannel) return voiceParticipants.get(currentVoiceChannel) || [];
+    if (currentVoiceDm) return livePresence(dmCallParticipants);
+    if (currentVoiceChannel) return livePresence(voiceParticipants.get(currentVoiceChannel) || []);
     return [];
   }
 
@@ -3946,7 +3987,7 @@ const TEMPLATE = `
     if (currentVoice && currentVoice.cameraStream) cameras.set(me.uid, { uid: me.uid, stream: currentVoice.cameraStream, kind: "camera", local: true });
     if (currentVoice && currentVoice.screenStream) screens.unshift({ uid: me.uid, stream: currentVoice.screenStream, kind: "screen", local: true });
 
-    const parts = voiceChannelParticipants();
+    const parts = activeCallParticipants();
     if (!parts.some((p) => p.uid === me.uid)) parts.push({ uid: me.uid, displayName: me.displayName, avatarEmoji: me.avatarEmoji });
     parts.forEach((p) => {
       const prof = profileFor(p.uid, p);
@@ -4586,6 +4627,21 @@ const TEMPLATE = `
       roleBtn.textContent = u.role === "admin" ? "Demote" : "Promote";
       roleBtn.disabled = isSelf;
       roleBtn.addEventListener("click", () => updateDoc(doc(db, "users", u.uid), { role: u.role === "admin" ? "member" : "admin" }));
+      const voltsBtn = document.createElement("button");
+      voltsBtn.className = "btn btn-secondary btn-sm";
+      voltsBtn.textContent = "⚡ Volts";
+      voltsBtn.title = "Give or take Volts";
+      voltsBtn.addEventListener("click", () => {
+        const raw = prompt(
+          "Add Volts to " + (u.displayName || "this user") + " (currently " + (u.volts || 0) + "). " +
+          "Enter a positive number to give, negative to take away:",
+          "500"
+        );
+        if (raw === null) return;
+        const amt = Math.trunc(Number(raw));
+        if (!amt) return;
+        updateDoc(doc(db, "users", u.uid), { volts: increment(amt) }).catch((e) => alert("Couldn't update Volts: " + e.message));
+      });
       const banBtn = document.createElement("button");
       banBtn.className = "btn btn-danger btn-sm";
       banBtn.textContent = u.banned ? "Unban" : "Ban";
@@ -4597,6 +4653,7 @@ const TEMPLATE = `
       delBtn.disabled = isSelf;
       delBtn.addEventListener("click", () => deleteAccount(u));
       actions.appendChild(roleBtn);
+      actions.appendChild(voltsBtn);
       actions.appendChild(banBtn);
       actions.appendChild(delBtn);
     });

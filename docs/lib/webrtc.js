@@ -1,5 +1,5 @@
 import {
-  collection, doc, setDoc, deleteDoc, addDoc, onSnapshot, query, where, getDocs, serverTimestamp,
+  collection, doc, setDoc, updateDoc, deleteDoc, addDoc, onSnapshot, query, where, getDocs, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 // STUN finds a direct path; the TURN relay is the fallback for networks that block
@@ -18,6 +18,11 @@ const ICE_SERVERS = [
 ];
 const MAX_PARTICIPANTS = 6;
 const SPEAK_THRESHOLD = 0.03;
+// Firestore has no server-side "disconnect" hook, so a closed tab / dead network / crash leaves
+// a "ghost" participant doc behind forever (nothing ever runs to delete it). Each client instead
+// touches its own doc on this interval; readers treat a doc whose lastSeen has gone stale (see
+// STALE_MS in app.js) as no longer actually present, even though the doc itself is still there.
+const PRESENCE_HEARTBEAT_MS = 15000;
 
 // Mesh WebRTC voice/video channel signaled through Firestore documents. Each peer pair uses the
 // "perfect negotiation" pattern (the peer with the larger uid is polite) so either side can add
@@ -49,6 +54,7 @@ export class VoiceManager {
     this.signalQueue = Promise.resolve();
     this.unsubParticipants = null;
     this.unsubSignals = null;
+    this.heartbeatTimer = null;
   }
 
   _participants() {
@@ -103,6 +109,7 @@ export class VoiceManager {
         displayName: this.displayName,
         avatarEmoji: this.avatarEmoji,
         joinedAt: serverTimestamp(),
+        lastSeen: serverTimestamp(),
       });
     } catch (e) {
       this._unwatch(this.uid);
@@ -116,6 +123,11 @@ export class VoiceManager {
       );
       return false;
     }
+
+    const myDocRef = doc(this.db, ...this.base, "participants", this.uid);
+    this.heartbeatTimer = setInterval(() => {
+      updateDoc(myDocRef, { lastSeen: serverTimestamp() }).catch(() => {});
+    }, PRESENCE_HEARTBEAT_MS);
 
     this.unsubParticipants = onSnapshot(this._participants(), (qs) => {
       const others = qs.docs.filter((d) => d.id !== this.uid).map((d) => d.id);
@@ -405,6 +417,8 @@ export class VoiceManager {
     if (!this.base) return;
     const base = this.base;
     this.base = null;
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
     if (this.unsubParticipants) this.unsubParticipants();
     if (this.unsubSignals) this.unsubSignals();
     this.unsubParticipants = this.unsubSignals = null;
