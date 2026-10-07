@@ -740,6 +740,20 @@ svg { width: 20px; height: 20px; display: block; }
 }
 @keyframes dw-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+/* Message highlights: a tinted background + left accent bar on your own chat rows. */
+.shop-highlight-swatch { width: 40px; height: 28px; border-radius: 6px; background: var(--sidebar-hover); }
+.shop-highlight-animated {
+  background: linear-gradient(90deg, #ff0000, #ff9900, #33ff00, #00fff6, #0066ff, #cc00ff, #ff0000);
+  background-size: 400% 100%;
+  animation: dw-rainbow 3s linear infinite;
+}
+.msg-highlight-animated {
+  box-shadow: inset 3px 0 0 #ff3cac;
+  background: linear-gradient(90deg, rgba(255,0,0,0.08), rgba(255,153,0,0.08), rgba(51,255,0,0.08), rgba(0,255,246,0.08), rgba(0,102,255,0.08), rgba(204,0,255,0.08), rgba(255,0,0,0.08));
+  background-size: 400% 100%;
+  animation: dw-rainbow 5s linear infinite;
+}
+
 #composer { padding: 0 16px 24px; flex-shrink: 0; position: relative; }
 #mention-popup {
   position: absolute;

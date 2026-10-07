@@ -670,6 +670,7 @@ const TEMPLATE = `
     { id: "amber", color: "#ffb703", name: "Amber", price: 450 },
     { id: "indigo", color: "#6c5ce7", name: "Indigo", price: 450 },
     { id: "platinum", color: "#e8eaed", name: "Platinum", price: 600 },
+    { id: "lime", color: "#a8ff00", name: "Lime", price: 700 },
     { id: "rainbow", color: null, name: "Rainbow ✨", price: 5000, rainbow: true },
     { id: "nebula", color: null, name: "Nebula ✨", price: 15000, rainbow: true, nebula: true },
   ];
@@ -691,6 +692,7 @@ const TEMPLATE = `
     { id: "whale", emoji: "\u{1F40B}", label: "Whale", price: 10000 },
     { id: "godlike", emoji: "\u{1F5FF}", label: "Godlike", price: 40000 },
     { id: "immortal", emoji: "♾️", label: "Immortal", price: 75000, mythic: true },
+    { id: "wizard", emoji: "\u{1F9D9}", label: "Wizard", price: 8000 },
   ];
   const SHOP_BANNERS = [
     { id: "sunset", gradient: "linear-gradient(135deg, #ff512f, #f09819)", name: "Sunset", price: 800 },
@@ -701,6 +703,7 @@ const TEMPLATE = `
     { id: "void", gradient: "linear-gradient(135deg, #000000, #434343)", name: "Void", price: 2000 },
     { id: "goldleaf", gradient: "linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7)", name: "Gold Leaf", price: 3000 },
     { id: "aurora", gradient: "linear-gradient(135deg, #00c3ff, #ffff1c, #ff00c8)", name: "Aurora ✨", price: 6000, animated: true },
+    { id: "bloodmoon", gradient: "linear-gradient(135deg, #0d0000, #8b0000, #1a0000)", name: "Bloodmoon", price: 4000 },
   ];
   const SHOP_FRAMES = [
     { id: "neon", ring: "0 0 0 3px #39ff14, 0 0 10px 2px rgba(57,255,20,0.7)", name: "Neon", price: 1000 },
@@ -708,14 +711,26 @@ const TEMPLATE = `
     { id: "blaze", ring: "0 0 0 3px #ff512f, 0 0 12px 2px rgba(255,81,47,0.6)", name: "Blaze", price: 2500 },
     { id: "frost", ring: "0 0 0 3px #6dd5ed, 0 0 12px 2px rgba(109,213,237,0.6)", name: "Frost", price: 2500 },
     { id: "chrome", ring: "0 0 0 3px #c9ccd1, 0 0 10px 2px rgba(201,204,209,0.5)", name: "Chrome", price: 4000 },
+    { id: "shadow", ring: "0 0 0 3px #43224a, 0 0 14px 3px rgba(67,34,74,0.8)", name: "Shadow", price: 5000 },
     { id: "cosmic", ring: null, name: "Cosmic ✨", price: 10000, animated: true },
   ];
-  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS, frame: SHOP_FRAMES };
+  // Tints your own sent messages - a left accent bar plus a faint background wash.
+  // "prism" is special-cased (animated), see highlightStyleFor.
+  const SHOP_HIGHLIGHTS = [
+    { id: "ember", bar: "#ed4245", bg: "rgba(237,66,69,0.08)", name: "Ember", price: 500 },
+    { id: "citrine", bar: "#faa61a", bg: "rgba(250,166,26,0.08)", name: "Citrine", price: 500 },
+    { id: "jade", bar: "#3ba55d", bg: "rgba(59,165,93,0.08)", name: "Jade", price: 500 },
+    { id: "azure", bar: "#00b0f4", bg: "rgba(0,176,244,0.08)", name: "Azure", price: 500 },
+    { id: "amethyst", bar: "#9b59b6", bg: "rgba(155,89,182,0.08)", name: "Amethyst", price: 500 },
+    { id: "prism", bar: null, bg: null, name: "Prism ✨", price: 20000, animated: true },
+  ];
+  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS, frame: SHOP_FRAMES, highlight: SHOP_HIGHLIGHTS };
   const SHOP_FIELDS = {
     color: { owned: "ownedColors", equip: "equippedColor" },
     badge: { owned: "ownedBadges", equip: "equippedBadge" },
     banner: { owned: "ownedBanners", equip: "equippedBanner" },
     frame: { owned: "ownedFrames", equip: "equippedFrame" },
+    highlight: { owned: "ownedHighlights", equip: "equippedHighlight" },
   };
   // A purchased name color wins over a role color (it's a direct personal purchase) - callers
   // combine this with whatever role color they already looked up: shopColorFor(u) || role?.color
@@ -766,6 +781,29 @@ const TEMPLATE = `
   function frameFor(u) {
     if (!u || !u.equippedFrame) return null;
     return SHOP_FRAMES.find((x) => x.id === u.equippedFrame) || null;
+  }
+  function highlightFor(u) {
+    if (!u || !u.equippedHighlight) return null;
+    return SHOP_HIGHLIGHTS.find((x) => x.id === u.equippedHighlight) || null;
+  }
+  // Applies (or clears) a message row's cosmetic highlight - a no-op if the row is about to get
+  // the (higher-priority) @mention treatment instead, which the caller clears this for.
+  function applyMessageHighlight(row, u) {
+    const h = highlightFor(u);
+    row.classList.remove("msg-highlight-animated");
+    if (!h) {
+      row.style.background = "";
+      row.style.boxShadow = "";
+      return;
+    }
+    if (h.animated) {
+      row.classList.add("msg-highlight-animated");
+      row.style.background = "";
+      row.style.boxShadow = "";
+    } else {
+      row.style.background = h.bg;
+      row.style.boxShadow = "inset 2px 0 0 " + h.bar;
+    }
   }
   // Permissions are denormalised per member so Firestore rules can check them without loops.
   function computeMemberPerms(roles, memberRoles) {
@@ -1134,10 +1172,12 @@ const TEMPLATE = `
         ownedBadges: Array.isArray(data.ownedBadges) ? data.ownedBadges : [],
         ownedBanners: Array.isArray(data.ownedBanners) ? data.ownedBanners : [],
         ownedFrames: Array.isArray(data.ownedFrames) ? data.ownedFrames : [],
+        ownedHighlights: Array.isArray(data.ownedHighlights) ? data.ownedHighlights : [],
         equippedColor: data.equippedColor || null,
         equippedBadge: data.equippedBadge || null,
         equippedBanner: data.equippedBanner || null,
         equippedFrame: data.equippedFrame || null,
+        equippedHighlight: data.equippedHighlight || null,
       };
       // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
       // (Firestore orderBy silently skips docs missing the field entirely).
@@ -2648,6 +2688,7 @@ const TEMPLATE = `
           '<div class="shop-section"><h3>Badges</h3><div id="shop-badges" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Profile banners</h3><div id="shop-banners" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Avatar frames</h3><div id="shop-frames" class="shop-grid"></div></div>' +
+          '<div class="shop-section"><h3>Message highlights</h3><div id="shop-highlights" class="shop-grid"></div></div>' +
         "</div>" +
         '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
         '<div id="casino-msg" class="form-msg"></div>' +
@@ -2843,9 +2884,15 @@ const TEMPLATE = `
     } else if (kind === "banner") {
       el.className = "shop-banner-swatch" + (item.animated ? " shop-banner-animated" : "");
       el.style.background = item.gradient;
-    } else {
+    } else if (kind === "frame") {
       el.className = "shop-frame-swatch" + (item.animated ? " avatar-frame-cosmic" : "");
       if (!item.animated) el.style.boxShadow = item.ring;
+    } else {
+      el.className = "shop-highlight-swatch" + (item.animated ? " shop-highlight-animated" : "");
+      if (!item.animated) {
+        el.style.background = item.bg;
+        el.style.boxShadow = "inset 3px 0 0 " + item.bar;
+      }
     }
     return el;
   }
@@ -2880,6 +2927,7 @@ const TEMPLATE = `
     renderShopSection("badge", "#shop-badges");
     renderShopSection("banner", "#shop-banners");
     renderShopSection("frame", "#shop-frames");
+    renderShopSection("highlight", "#shop-highlights");
   }
 
   function dmWelcomeBlock(name) {
@@ -2922,6 +2970,7 @@ const TEMPLATE = `
 
       const row = document.createElement("div");
       row.className = "msg" + (cont ? " cont" : "");
+      applyMessageHighlight(row, prof);
       const gutter = document.createElement("div");
       gutter.className = "msg-gutter";
       if (cont) {
@@ -2970,6 +3019,9 @@ const TEMPLATE = `
         const { mentionsMe } = renderRichText(text, m.text);
         if (mentionsMe || (Array.isArray(m.mentions) && me && (m.mentions.includes(me.uid) || m.mentions.includes("everyone")))) {
           row.classList.add("mentioned");
+          row.style.background = ""; // let the @mention highlight win over a cosmetic one
+          row.style.boxShadow = "";
+          row.classList.remove("msg-highlight-animated");
         }
         body.appendChild(text);
       }

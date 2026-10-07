@@ -136,22 +136,27 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   give (or take away) Volts from anyone in **Site Admin → All Users → ⚡ Volts**. A **🛍️ Shop** tab
   spends Volts on cosmetics, shown on your display name/avatar everywhere they appear (chat,
   member lists, profile card, the leaderboard, voice):
-  - **11 name colors** (300–600⚡) plus two animated ones, **Rainbow** (5,000⚡) and **Nebula**
+  - **12 name colors** (300–700⚡) plus two animated ones, **Rainbow** (5,000⚡) and **Nebula**
     (15,000⚡) — overrides a role color.
-  - **16 flair badges** (500–40,000⚡) plus two glowing, color-cycling top-tier badges, **Mythic**
-    (25,000⚡) and **Immortal** (75,000⚡) — a small pill next to your name.
-  - **8 profile banners** (800–3,000⚡) plus an animated shimmering **Aurora** (6,000⚡) — gradient
+  - **17 flair badges** (500–40,000⚡) plus two glowing, color-cycling top-tier badges, **Mythic**
+    (25,000⚡) and **Immortal** (75,000⚡, the single most expensive item in the shop) — a small
+    pill next to your name.
+  - **9 profile banners** (800–4,000⚡) plus an animated shimmering **Aurora** (6,000⚡) — gradient
     backgrounds for your profile card.
-  - **6 avatar frames** (1,000–4,000⚡) plus a spinning rainbow-ring **Cosmic** frame (10,000⚡) —
+  - **7 avatar frames** (1,000–5,000⚡) plus a spinning rainbow-ring **Cosmic** frame (10,000⚡) —
     a glowing ring around your avatar, everywhere `makeAvatar()` is used.
+  - **6 message highlights** (500⚡) plus an animated color-cycling **Prism** (20,000⚡) — a tinted
+    background + accent bar on your own sent messages (an @mention's highlight always wins over
+    this cosmetic one if both would apply).
 
   The whole catalog lives in `SHOP_CATALOG`/`SHOP_FIELDS` (one generic buy/equip/render path per
   category) so adding a new category is a small, mechanical addition, not a rewrite.
 
   Owned items equip/unequip with a free click; buying auto-equips. Stored as
   `owned`/`equipped` pairs per category (`ownedColors`/`equippedColor`, `ownedBadges`/
-  `equippedBadge`, `ownedBanners`/`equippedBanner`, `ownedFrames`/`equippedFrame`) on the user
-  doc — again no rules change needed, same self-update rule.
+  `equippedBadge`, `ownedBanners`/`equippedBanner`, `ownedFrames`/`equippedFrame`,
+  `ownedHighlights`/`equippedHighlight`) on the user doc — again no rules change needed, same
+  self-update rule.
 - **Voice/call presence**: Firestore has no server-side "someone disconnected" signal, so a closed
   tab, dead network, or crash used to leave a permanent "ghost" entry in a voice channel or call —
   showing someone as present who's long gone. Each client now touches its own participant doc every
