@@ -133,7 +133,12 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   rapid spins (or two tabs) can never push a balance negative. No rules changes are needed for this
   feature — it rides on the existing "you can always edit your own user doc" rule. The bet amount is
   always clamped to your real balance, no matter what gets typed into the box. **Site admins** can
-  give (or take away) Volts from anyone in **Site Admin → All Users → ⚡ Volts**.
+  give (or take away) Volts from anyone in **Site Admin → All Users → ⚡ Volts**. A **🛍️ Shop** tab
+  spends Volts on cosmetics: 6 name colors (300⚡) and 6 flair badges (500–1500⚡), shown on your
+  display name everywhere it appears (chat, member lists, profile card, the leaderboard). A shop
+  color overrides a role color; owned items equip/unequip with a free click. Stored as
+  `ownedColors`/`ownedBadges`/`equippedColor`/`equippedBadge` on the user doc — again no rules
+  change needed, same self-update rule.
 - **Voice/call presence**: Firestore has no server-side "someone disconnected" signal, so a closed
   tab, dead network, or crash used to leave a permanent "ghost" entry in a voice channel or call —
   showing someone as present who's long gone. Each client now touches its own participant doc every
