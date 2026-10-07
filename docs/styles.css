@@ -716,6 +716,29 @@ svg { width: 20px; height: 20px; display: block; }
   0%, 100% { box-shadow: 0 0 2px rgba(255, 180, 60, 0.4); }
   50% { box-shadow: 0 0 10px rgba(255, 60, 172, 0.7); }
 }
+.shop-swatch-nebula { background: linear-gradient(90deg, #00c3ff, #7a3cff, #ff3cac, #00c3ff); background-size: 400% 100%; animation: dw-rainbow 4s linear infinite; }
+.name-nebula {
+  background: linear-gradient(90deg, #00c3ff, #7a3cff, #ff3cac, #00c3ff);
+  background-size: 400% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  animation: dw-rainbow 4s linear infinite;
+}
+.shop-banner-animated, .profile-banner.banner-animated { background-size: 300% 300% !important; animation: dw-shimmer 6s ease infinite; }
+@keyframes dw-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.shop-frame-swatch { width: 28px; height: 28px; border-radius: 50%; background: var(--sidebar-hover); }
+
+/* Avatar frames: a glow ring (box-shadow, applied inline per frame) or, for the premium
+   animated frame, a rotating conic-gradient ring behind the avatar via ::before. */
+.avatar-frame-cosmic { position: relative; z-index: 0; }
+.avatar-frame-cosmic::before {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%; z-index: -1;
+  background: conic-gradient(from 0deg, #ff0000, #ff9900, #33ff00, #00fff6, #0066ff, #cc00ff, #ff0000);
+  animation: dw-spin 2.5s linear infinite;
+}
+@keyframes dw-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 #composer { padding: 0 16px 24px; flex-shrink: 0; position: relative; }
 #mention-popup {

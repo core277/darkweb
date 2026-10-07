@@ -597,6 +597,11 @@ const TEMPLATE = `
   function makeAvatar(profile, uid, sizeClass, withStatus) {
     const el = document.createElement("div");
     el.className = "avatar " + sizeClass;
+    const frame = frameFor(profile);
+    if (frame) {
+      if (frame.animated) el.classList.add("avatar-frame-cosmic");
+      else el.style.boxShadow = frame.ring;
+    }
     if (profile && profile.avatarUrl) {
       const img = document.createElement("img");
       img.src = profile.avatarUrl;
@@ -664,7 +669,9 @@ const TEMPLATE = `
     { id: "coral", color: "#ff6b6b", name: "Coral", price: 450 },
     { id: "amber", color: "#ffb703", name: "Amber", price: 450 },
     { id: "indigo", color: "#6c5ce7", name: "Indigo", price: 450 },
+    { id: "platinum", color: "#e8eaed", name: "Platinum", price: 600 },
     { id: "rainbow", color: null, name: "Rainbow ✨", price: 5000, rainbow: true },
+    { id: "nebula", color: null, name: "Nebula ✨", price: 15000, rainbow: true, nebula: true },
   ];
   // "mythic" is special-cased (glowing pulse), see appendFlairBadge.
   const SHOP_BADGES = [
@@ -681,6 +688,9 @@ const TEMPLATE = `
     { id: "icon", emoji: "\u{1F31F}", label: "Icon", price: 5000 },
     { id: "alien", emoji: "\u{1F47D}", label: "Alien", price: 5000 },
     { id: "mythic", emoji: "\u{1F409}", label: "Mythic", price: 25000, mythic: true },
+    { id: "whale", emoji: "\u{1F40B}", label: "Whale", price: 10000 },
+    { id: "godlike", emoji: "\u{1F5FF}", label: "Godlike", price: 40000 },
+    { id: "immortal", emoji: "♾️", label: "Immortal", price: 75000, mythic: true },
   ];
   const SHOP_BANNERS = [
     { id: "sunset", gradient: "linear-gradient(135deg, #ff512f, #f09819)", name: "Sunset", price: 800 },
@@ -689,12 +699,23 @@ const TEMPLATE = `
     { id: "toxic", gradient: "linear-gradient(135deg, #134e5e, #71b280)", name: "Toxic", price: 1200 },
     { id: "inferno", gradient: "linear-gradient(135deg, #f12711, #f5af19)", name: "Inferno", price: 1500 },
     { id: "void", gradient: "linear-gradient(135deg, #000000, #434343)", name: "Void", price: 2000 },
+    { id: "goldleaf", gradient: "linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7)", name: "Gold Leaf", price: 3000 },
+    { id: "aurora", gradient: "linear-gradient(135deg, #00c3ff, #ffff1c, #ff00c8)", name: "Aurora ✨", price: 6000, animated: true },
   ];
-  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS };
+  const SHOP_FRAMES = [
+    { id: "neon", ring: "0 0 0 3px #39ff14, 0 0 10px 2px rgba(57,255,20,0.7)", name: "Neon", price: 1000 },
+    { id: "goldring", ring: "0 0 0 3px #faa61a, 0 0 10px 2px rgba(250,166,26,0.6)", name: "Gold Ring", price: 1500 },
+    { id: "blaze", ring: "0 0 0 3px #ff512f, 0 0 12px 2px rgba(255,81,47,0.6)", name: "Blaze", price: 2500 },
+    { id: "frost", ring: "0 0 0 3px #6dd5ed, 0 0 12px 2px rgba(109,213,237,0.6)", name: "Frost", price: 2500 },
+    { id: "chrome", ring: "0 0 0 3px #c9ccd1, 0 0 10px 2px rgba(201,204,209,0.5)", name: "Chrome", price: 4000 },
+    { id: "cosmic", ring: null, name: "Cosmic ✨", price: 10000, animated: true },
+  ];
+  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS, frame: SHOP_FRAMES };
   const SHOP_FIELDS = {
     color: { owned: "ownedColors", equip: "equippedColor" },
     badge: { owned: "ownedBadges", equip: "equippedBadge" },
     banner: { owned: "ownedBanners", equip: "equippedBanner" },
+    frame: { owned: "ownedFrames", equip: "equippedFrame" },
   };
   // A purchased name color wins over a role color (it's a direct personal purchase) - callers
   // combine this with whatever role color they already looked up: shopColorFor(u) || role?.color
@@ -703,15 +724,21 @@ const TEMPLATE = `
     const c = SHOP_COLORS.find((x) => x.id === u.equippedColor);
     return c && !c.rainbow ? c.color : null;
   }
-  function isRainbowEquipped(u) {
-    return !!(u && u.equippedColor === "rainbow");
+  // Returns the CSS class for an equipped *animated* color (rainbow/nebula/...), or null if
+  // the equipped color (if any) is a plain flat color.
+  function animatedColorClass(u) {
+    if (!u || !u.equippedColor) return null;
+    const c = SHOP_COLORS.find((x) => x.id === u.equippedColor);
+    if (!c || !c.rainbow) return null;
+    return c.nebula ? "name-nebula" : "name-rainbow";
   }
-  // Applies the right name color (or the animated rainbow class) to a name element, given
-  // whatever role the caller already resolved for the fallback color.
+  // Applies the right name color (or an animated class) to a name element, given whatever
+  // role the caller already resolved for the fallback color.
   function applyNameStyle(el, u, role) {
-    el.classList.remove("name-rainbow");
-    if (isRainbowEquipped(u)) {
-      el.classList.add("name-rainbow");
+    el.classList.remove("name-rainbow", "name-nebula");
+    const animClass = animatedColorClass(u);
+    if (animClass) {
+      el.classList.add(animClass);
       el.style.color = "";
       return;
     }
@@ -734,8 +761,11 @@ const TEMPLATE = `
   }
   function bannerFor(u) {
     if (!u || !u.equippedBanner) return null;
-    const b = SHOP_BANNERS.find((x) => x.id === u.equippedBanner);
-    return b ? b.gradient : null;
+    return SHOP_BANNERS.find((x) => x.id === u.equippedBanner) || null;
+  }
+  function frameFor(u) {
+    if (!u || !u.equippedFrame) return null;
+    return SHOP_FRAMES.find((x) => x.id === u.equippedFrame) || null;
   }
   // Permissions are denormalised per member so Firestore rules can check them without loops.
   function computeMemberPerms(roles, memberRoles) {
@@ -1103,9 +1133,11 @@ const TEMPLATE = `
         ownedColors: Array.isArray(data.ownedColors) ? data.ownedColors : [],
         ownedBadges: Array.isArray(data.ownedBadges) ? data.ownedBadges : [],
         ownedBanners: Array.isArray(data.ownedBanners) ? data.ownedBanners : [],
+        ownedFrames: Array.isArray(data.ownedFrames) ? data.ownedFrames : [],
         equippedColor: data.equippedColor || null,
         equippedBadge: data.equippedBadge || null,
         equippedBanner: data.equippedBanner || null,
+        equippedFrame: data.equippedFrame || null,
       };
       // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
       // (Firestore orderBy silently skips docs missing the field entirely).
@@ -2615,6 +2647,7 @@ const TEMPLATE = `
           '<div class="shop-section"><h3 class="first">Name colours</h3><div id="shop-colors" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Badges</h3><div id="shop-badges" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Profile banners</h3><div id="shop-banners" class="shop-grid"></div></div>' +
+          '<div class="shop-section"><h3>Avatar frames</h3><div id="shop-frames" class="shop-grid"></div></div>' +
         "</div>" +
         '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
         '<div id="casino-msg" class="form-msg"></div>' +
@@ -2802,14 +2835,17 @@ const TEMPLATE = `
   function shopPreviewEl(kind, item) {
     const el = document.createElement("span");
     if (kind === "color") {
-      el.className = "shop-swatch" + (item.rainbow ? " shop-swatch-rainbow" : "");
+      el.className = "shop-swatch" + (item.rainbow ? (item.nebula ? " shop-swatch-nebula" : " shop-swatch-rainbow") : "");
       if (!item.rainbow) el.style.background = item.color;
     } else if (kind === "badge") {
       el.className = "shop-badge-emoji";
       el.textContent = item.emoji;
-    } else {
-      el.className = "shop-banner-swatch";
+    } else if (kind === "banner") {
+      el.className = "shop-banner-swatch" + (item.animated ? " shop-banner-animated" : "");
       el.style.background = item.gradient;
+    } else {
+      el.className = "shop-frame-swatch" + (item.animated ? " avatar-frame-cosmic" : "");
+      if (!item.animated) el.style.boxShadow = item.ring;
     }
     return el;
   }
@@ -2843,6 +2879,7 @@ const TEMPLATE = `
     renderShopSection("color", "#shop-colors");
     renderShopSection("badge", "#shop-badges");
     renderShopSection("banner", "#shop-banners");
+    renderShopSection("frame", "#shop-frames");
   }
 
   function dmWelcomeBlock(name) {
@@ -4497,7 +4534,10 @@ const TEMPLATE = `
     const u = usersCache.get(uid);
     if (!u) return;
     closeAllModals();
-    $("#profile-card-banner").style.background = bannerFor(u) || "";
+    const bannerEl = $("#profile-card-banner");
+    const banner = bannerFor(u);
+    bannerEl.style.background = banner ? banner.gradient : "";
+    bannerEl.classList.toggle("banner-animated", !!(banner && banner.animated));
     const av = $("#profile-card-avatar");
     av.innerHTML = "";
     av.appendChild(makeAvatar(u, uid, "avatar-80", true));
