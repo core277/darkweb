@@ -140,8 +140,10 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   15s (`lastSeen`); anyone whose heartbeat goes quiet for ~35s is treated as not actually there,
   everywhere that list is shown (sidebar, call panel, DM call banner), rechecked every 10s so a
   ghost fades out on its own even with no new Firestore writes to react to. Requires the rules
-  below (a narrow `update` exception letting a participant touch only their own `lastSeen` field —
-  everything else about that doc is still locked).
+  below: a participant doc's own owner may create/update/delete it outright (a rejoin after a
+  ghost is a plain `setDoc()` on a doc that still exists, which Firestore rules treat as an
+  *update*, not a create — restricting that update to a narrow `lastSeen`-only touch would lock
+  the very person the ghost belongs to out of ever rejoining).
 - **Site admins** (users with `role: "admin"`) see *every* server in the rail — servers they're not
   a member of get a yellow ring — and get a shield button in the bottom-left user panel that opens
   the **Site Admin** panel (all servers, all users, promote/ban/delete). Deleting an account wipes

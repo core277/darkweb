@@ -59,13 +59,6 @@ service cloud.firestore {
     function messageUpdateOk() {
       return pollVoteOnly() || reactionsOnly();
     }
-    // Voice/call presence docs have no server-side "disconnect" signal, so each client touches
-    // its own doc on an interval to prove it's still actually there; a doc whose lastSeen goes
-    // stale is treated client-side as no longer present even though the doc itself lingers.
-    // Only that one field may move, and only the doc's own owner may move it.
-    function presenceHeartbeatOnly() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen']);
-    }
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -114,8 +107,12 @@ service cloud.firestore {
       // 1:1 voice/video calls, signaled the same way as server voice channels.
       match /call/{callId}/participants/{userId} {
         allow read: if canUseDm();
-        allow create, delete: if canUseDm() && request.auth.uid == userId && isNotBanned();
-        allow update: if canUseDm() && request.auth.uid == userId && isNotBanned() && presenceHeartbeatOnly();
+        // create and update share one condition on purpose: setDoc() on a doc that still exists
+        // (e.g. a stale entry from a tab that closed without cleanly leaving - the exact case
+        // this doc's own heartbeat exists to detect) is evaluated by Firestore as an update, not
+        // a create, so update has to allow a full rejoin, not just a narrow lastSeen touch.
+        // There's no security cost to that: only the doc's own uid can ever reach either branch.
+        allow create, update, delete: if canUseDm() && request.auth.uid == userId && isNotBanned();
       }
       match /call/{callId}/signals/{signalId} {
         allow read: if canUseDm();
@@ -202,8 +199,12 @@ service cloud.firestore {
 
       match /voiceChannels/{channelId}/participants/{userId} {
         allow read: if canAccess(serverId);
-        allow create, delete: if canAccess(serverId) && request.auth.uid == userId && isNotBanned();
-        allow update: if canAccess(serverId) && request.auth.uid == userId && isNotBanned() && presenceHeartbeatOnly();
+        // create and update share one condition on purpose: setDoc() on a doc that still exists
+        // (e.g. a stale entry from a tab that closed without cleanly leaving - the exact case
+        // this doc's own heartbeat exists to detect) is evaluated by Firestore as an update, not
+        // a create, so update has to allow a full rejoin, not just a narrow lastSeen touch.
+        // There's no security cost to that: only the doc's own uid can ever reach either branch.
+        allow create, update, delete: if canAccess(serverId) && request.auth.uid == userId && isNotBanned();
       }
 
       match /voiceChannels/{channelId}/signals/{signalId} {
