@@ -653,6 +653,43 @@ const TEMPLATE = `
     const ids = memberRoleIds(s, uid);
     return serverRoles(s).find((r) => ids.includes(r.id)) || null;
   };
+
+  // ---- Volt Shop: cosmetics bought with Volts, stored on the user doc ----
+  const SHOP_COLORS = [
+    { id: "crimson", color: "#ed4245", name: "Crimson", price: 300 },
+    { id: "gold", color: "#faa61a", name: "Gold", price: 300 },
+    { id: "emerald", color: "#3ba55d", name: "Emerald", price: 300 },
+    { id: "sky", color: "#00b0f4", name: "Sky", price: 300 },
+    { id: "violet", color: "#9b59b6", name: "Violet", price: 300 },
+    { id: "rose", color: "#f47fff", name: "Rose", price: 300 },
+  ];
+  const SHOP_BADGES = [
+    { id: "vip", emoji: "⚡", label: "VIP", price: 500 },
+    { id: "ghost", emoji: "\u{1F47B}", label: "Ghost", price: 500 },
+    { id: "legend", emoji: "\u{1F525}", label: "Legend", price: 750 },
+    { id: "villain", emoji: "\u{1F480}", label: "Villain", price: 750 },
+    { id: "baller", emoji: "\u{1F4B0}", label: "Baller", price: 1000 },
+    { id: "royalty", emoji: "\u{1F451}", label: "Royalty", price: 1500 },
+  ];
+  // A purchased name color wins over a role color (it's a direct personal purchase) - callers
+  // combine this with whatever role color they already looked up: shopColorFor(u) || role?.color
+  function shopColorFor(u) {
+    if (!u || !u.equippedColor) return null;
+    const c = SHOP_COLORS.find((x) => x.id === u.equippedColor);
+    return c ? c.color : null;
+  }
+  function equippedBadgeInfo(u) {
+    if (!u || !u.equippedBadge) return null;
+    return SHOP_BADGES.find((b) => b.id === u.equippedBadge) || null;
+  }
+  function appendFlairBadge(container, u) {
+    const b = equippedBadgeInfo(u);
+    if (!b) return;
+    const el = document.createElement("span");
+    el.className = "role-badge flair-badge";
+    el.textContent = b.emoji + " " + b.label;
+    container.appendChild(el);
+  }
   // Permissions are denormalised per member so Firestore rules can check them without loops.
   function computeMemberPerms(roles, memberRoles) {
     const out = {};
@@ -1016,6 +1053,10 @@ const TEMPLATE = `
         games: Array.isArray(data.games) ? data.games : [],
         volts: typeof data.volts === "number" ? data.volts : 0,
         lastClaimAt: data.lastClaimAt || null,
+        ownedColors: Array.isArray(data.ownedColors) ? data.ownedColors : [],
+        ownedBadges: Array.isArray(data.ownedBadges) ? data.ownedBadges : [],
+        equippedColor: data.equippedColor || null,
+        equippedBadge: data.equippedBadge || null,
       };
       // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
       // (Firestore orderBy silently skips docs missing the field entirely).
@@ -1135,9 +1176,11 @@ const TEMPLATE = `
         name.className = "member-name";
         name.textContent = u.displayName;
         const role = topRole(currentServer, u.uid);
-        if (role && role.color) name.style.color = role.color;
+        const shopColor = shopColorFor(u);
+        if (shopColor || (role && role.color)) name.style.color = shopColor || role.color;
         if (u.uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
         else if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
+        appendFlairBadge(name, u);
         text.appendChild(name);
         if (u.status) {
           const st = document.createElement("div");
@@ -1754,8 +1797,10 @@ const TEMPLATE = `
       const name = document.createElement("span");
       name.textContent = u.displayName;
       const top = topRole(currentServer, uid);
-      if (top && top.color) name.style.color = top.color;
+      const shopColor = shopColorFor(u);
+      if (shopColor || (top && top.color)) name.style.color = shopColor || top.color;
       nameWrap.appendChild(name);
+      appendFlairBadge(nameWrap, u);
       if (uid === currentServer.ownerUid) nameWrap.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
       const roles = serverRoles(currentServer);
       if (roles.length) {
@@ -2440,6 +2485,7 @@ const TEMPLATE = `
         box.querySelectorAll(".tab-btn[data-ctab]").forEach((b) => b.classList.toggle("active", b === btn));
         box.querySelectorAll("[id^='ctab-']").forEach((p) => (p.hidden = p.id !== "ctab-" + tab));
         if (tab === "board") renderCasinoBoard();
+        else if (tab === "shop") renderShop();
       });
     });
   }
@@ -2499,6 +2545,7 @@ const TEMPLATE = `
         '<div class="casino-tabs modal-tabs">' +
           '<button class="tab-btn active" data-ctab="slots">\u{1F3B0} Slots</button>' +
           '<button class="tab-btn" data-ctab="wheel">\u{1F3A1} Wheel</button>' +
+          '<button class="tab-btn" data-ctab="shop">\u{1F6CD}️ Shop</button>' +
           '<button class="tab-btn" data-ctab="board">\u{1F3C6} Volt Lords</button>' +
         "</div>" +
         '<div id="ctab-slots" class="casino-tab">' +
@@ -2516,6 +2563,10 @@ const TEMPLATE = `
           '<div class="wheel-legend" id="wheel-legend"></div>' +
           '<div class="casino-bet-row"><label>Bet <input id="wheel-bet" type="number" min="10" step="10" value="50" /></label>' +
           '<button id="wheel-spin-btn" class="btn btn-primary">Spin the wheel</button></div>' +
+        "</div>" +
+        '<div id="ctab-shop" class="casino-tab" hidden>' +
+          '<div class="shop-section"><h3 class="first">Name colours</h3><div id="shop-colors" class="shop-grid"></div></div>' +
+          '<div class="shop-section"><h3>Badges</h3><div id="shop-badges" class="shop-grid"></div></div>' +
         "</div>" +
         '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
         '<div id="casino-msg" class="form-msg"></div>' +
@@ -2638,7 +2689,10 @@ const TEMPLATE = `
         const name = document.createElement("span");
         name.className = "board-name";
         name.textContent = u.displayName || "Unknown";
+        const shopColor = shopColorFor(u);
+        if (shopColor) name.style.color = shopColor;
         if (rank === 1) name.appendChild(badgeIcon(ICONS.crown, "crown", "Volt Lord"));
+        appendFlairBadge(name, u);
         row.appendChild(name);
         const amt = document.createElement("span");
         amt.className = "board-amt";
@@ -2650,6 +2704,91 @@ const TEMPLATE = `
     } catch (e) {
       list.innerHTML = '<div class="empty-hint small">Couldn\'t load: ' + e.message + "</div>";
     }
+  }
+
+  // Buys the item (deducting Volts) in a transaction that double-checks you don't already own
+  // it and can actually afford it, then equips it as part of the same write.
+  async function buyShopItem(kind, item) {
+    if (!me) return;
+    const ownedField = kind === "color" ? "ownedColors" : "ownedBadges";
+    const equipField = kind === "color" ? "equippedColor" : "equippedBadge";
+    const uref = doc(db, "users", me.uid);
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(uref);
+        const d = snap.data() || {};
+        const owned = Array.isArray(d[ownedField]) ? d[ownedField] : [];
+        if (owned.includes(item.id)) throw new Error("already-owned");
+        const cur = d.volts || 0;
+        if (cur < item.price) throw new Error("Not enough Volts.");
+        tx.update(uref, {
+          volts: cur - item.price,
+          [ownedField]: owned.concat([item.id]),
+          [equipField]: item.id,
+        });
+      });
+      me.volts -= item.price;
+      me[ownedField] = (me[ownedField] || []).concat([item.id]);
+      me[equipField] = item.id;
+      updateCasinoBalance();
+      renderShop();
+      setMsg("#casino-msg", "Bought and equipped!", "ok");
+    } catch (e) {
+      setMsg("#casino-msg", e.message === "already-owned" ? "You already own that." : e.message, "error");
+    }
+  }
+
+  async function equipShopItem(kind, id) {
+    if (!me) return;
+    const equipField = kind === "color" ? "equippedColor" : "equippedBadge";
+    const next = me[equipField] === id ? null : id; // click again to unequip
+    try {
+      await updateDoc(doc(db, "users", me.uid), { [equipField]: next });
+      me[equipField] = next;
+      renderShop();
+    } catch (e) {
+      setMsg("#casino-msg", "Couldn't equip: " + e.message, "error");
+    }
+  }
+
+  function renderShop() {
+    if (!me) return;
+    const colorBox = $("#shop-colors");
+    const badgeBox = $("#shop-badges");
+    if (!colorBox || !badgeBox) return;
+    colorBox.innerHTML = "";
+    SHOP_COLORS.forEach((c) => {
+      const owned = (me.ownedColors || []).includes(c.id);
+      const equipped = me.equippedColor === c.id;
+      const card = document.createElement("div");
+      card.className = "shop-item" + (equipped ? " equipped" : "");
+      card.innerHTML =
+        '<span class="shop-swatch" style="background:' + c.color + '"></span>' +
+        "<span class=\"shop-item-name\"></span>" +
+        '<button class="btn btn-sm ' + (owned ? "btn-secondary" : "btn-primary") + '"></button>';
+      card.querySelector(".shop-item-name").textContent = c.name;
+      const btn = card.querySelector("button");
+      btn.textContent = equipped ? "Equipped" : owned ? "Equip" : "Buy for " + c.price + " ⚡";
+      btn.addEventListener("click", () => (owned ? equipShopItem("color", c.id) : buyShopItem("color", c)));
+      colorBox.appendChild(card);
+    });
+    badgeBox.innerHTML = "";
+    SHOP_BADGES.forEach((b) => {
+      const owned = (me.ownedBadges || []).includes(b.id);
+      const equipped = me.equippedBadge === b.id;
+      const card = document.createElement("div");
+      card.className = "shop-item" + (equipped ? " equipped" : "");
+      card.innerHTML =
+        '<span class="shop-badge-emoji"></span>' +
+        "<span class=\"shop-item-name\"></span>" +
+        '<button class="btn btn-sm ' + (owned ? "btn-secondary" : "btn-primary") + '"></button>';
+      card.querySelector(".shop-badge-emoji").textContent = b.emoji;
+      card.querySelector(".shop-item-name").textContent = b.label;
+      const btn = card.querySelector("button");
+      btn.textContent = equipped ? "Equipped" : owned ? "Equip" : "Buy for " + b.price + " ⚡";
+      btn.addEventListener("click", () => (owned ? equipShopItem("badge", b.id) : buyShopItem("badge", b)));
+      badgeBox.appendChild(card);
+    });
   }
 
   function dmWelcomeBlock(name) {
@@ -2712,9 +2851,12 @@ const TEMPLATE = `
         const author = document.createElement("span");
         author.className = "msg-author";
         author.textContent = prof.displayName || m.displayName || "Unknown";
+        const shopColor = shopColorFor(prof);
         if (!inDm()) {
           const role = topRole(currentServer, m.uid);
-          if (role && role.color) author.style.color = role.color;
+          if (shopColor || (role && role.color)) author.style.color = shopColor || role.color;
+        } else if (shopColor) {
+          author.style.color = shopColor;
         }
         if (me && m.uid !== me.uid) {
           author.classList.add("clickable");
@@ -2729,6 +2871,7 @@ const TEMPLATE = `
           badge.textContent = badgeText;
           author.appendChild(badge);
         }
+        appendFlairBadge(author, prof);
         const time = document.createElement("span");
         time.className = "msg-time";
         time.textContent = formatTime(date);
@@ -4312,11 +4455,13 @@ const TEMPLATE = `
     const name = $("#profile-card-name");
     name.textContent = u.displayName || "Unknown";
     name.style.color = "";
+    const shopColor = shopColorFor(u);
+    if (shopColor) name.style.color = shopColor;
     const roleChips = $("#profile-card-roles");
     roleChips.innerHTML = "";
     if (!inDm() && currentServer) {
       const top = topRole(currentServer, uid);
-      if (top && top.color) name.style.color = top.color;
+      if (!shopColor && top && top.color) name.style.color = top.color;
       if (uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
       const ids = memberRoleIds(currentServer, uid);
       serverRoles(currentServer)
@@ -4330,6 +4475,7 @@ const TEMPLATE = `
         });
     }
     if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
+    appendFlairBadge(name, u);
     $("#profile-card-status").textContent = u.status || (isOnline(u) ? "Online" : "Offline");
     $("#profile-card-bio").textContent = u.bio || "";
     $("#profile-card-bio-wrap").hidden = !u.bio;
