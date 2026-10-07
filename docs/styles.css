@@ -674,7 +674,7 @@ svg { width: 20px; height: 20px; display: block; }
 .role-badge.flair-badge { background: var(--sidebar-active); color: var(--text); text-transform: none; letter-spacing: 0; }
 
 /* ---- Volt Shop ---- */
-.shop-section { margin-bottom: 18px; }
+.shop-section { margin-bottom: 18px; width: 100%; align-self: stretch; }
 .shop-section h3 { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .shop-section h3.first { margin-top: 0; }
 .shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
