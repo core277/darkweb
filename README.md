@@ -148,6 +148,9 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   - **6 message highlights** (500⚡) plus an animated color-cycling **Prism** (20,000⚡) — a tinted
     background + accent bar on your own sent messages (an @mention's highlight always wins over
     this cosmetic one if both would apply).
+  - **8 profile titles** (1,000–50,000⚡, e.g. "The Chosen One", "Local Menace") — a curated
+    italic vanity line under your name on the profile card. Curated, not free text, same
+    reasoning as badges: nothing for anyone to type that needs moderating.
 
   The whole catalog lives in `SHOP_CATALOG`/`SHOP_FIELDS` (one generic buy/equip/render path per
   category) so adding a new category is a small, mechanical addition, not a rewrite.
@@ -155,6 +158,7 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   Owned items equip/unequip with a free click; buying auto-equips. Stored as
   `owned`/`equipped` pairs per category (`ownedColors`/`equippedColor`, `ownedBadges`/
   `equippedBadge`, `ownedBanners`/`equippedBanner`, `ownedFrames`/`equippedFrame`,
+  `ownedTitles`/`equippedTitle`,
   `ownedHighlights`/`equippedHighlight`) on the user doc — again no rules change needed, same
   self-update rule.
 - **Voice/call presence**: Firestore has no server-side "someone disconnected" signal, so a closed

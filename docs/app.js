@@ -305,6 +305,7 @@ const TEMPLATE = `
       <div class="profile-card-body">
         <div id="profile-card-avatar"></div>
         <div id="profile-card-name" class="profile-card-name"></div>
+        <div id="profile-card-title" class="profile-card-title" hidden></div>
         <div id="profile-card-status" class="profile-card-status"></div>
         <div id="profile-card-roles" class="role-chips"></div>
         <div id="profile-card-bio-wrap">
@@ -724,13 +725,29 @@ const TEMPLATE = `
     { id: "amethyst", bar: "#9b59b6", bg: "rgba(155,89,182,0.08)", name: "Amethyst", price: 500 },
     { id: "prism", bar: null, bg: null, name: "Prism ✨", price: 20000, animated: true },
   ];
-  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS, frame: SHOP_FRAMES, highlight: SHOP_HIGHLIGHTS };
+  // A curated vanity line shown under your name on the profile card - free text isn't offered,
+  // same reasoning as badges: no moderation surface to worry about.
+  const SHOP_TITLES = [
+    { id: "chosen", text: "The Chosen One", price: 1000 },
+    { id: "unbanned", text: "The Unbanned", price: 1000 },
+    { id: "menace", text: "Local Menace", price: 1500 },
+    { id: "touchgrass", text: "Needs To Touch Grass", price: 1500 },
+    { id: "chronic", text: "Chronically Online", price: 3000 },
+    { id: "firstname", text: "First Of Their Name", price: 3000 },
+    { id: "sauce", text: "Goated With The Sauce", price: 5000 },
+    { id: "finalboss", text: "The Final Boss", price: 50000, mythic: true },
+  ];
+  const SHOP_CATALOG = {
+    color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS, frame: SHOP_FRAMES,
+    highlight: SHOP_HIGHLIGHTS, title: SHOP_TITLES,
+  };
   const SHOP_FIELDS = {
     color: { owned: "ownedColors", equip: "equippedColor" },
     badge: { owned: "ownedBadges", equip: "equippedBadge" },
     banner: { owned: "ownedBanners", equip: "equippedBanner" },
     frame: { owned: "ownedFrames", equip: "equippedFrame" },
     highlight: { owned: "ownedHighlights", equip: "equippedHighlight" },
+    title: { owned: "ownedTitles", equip: "equippedTitle" },
   };
   // A purchased name color wins over a role color (it's a direct personal purchase) - callers
   // combine this with whatever role color they already looked up: shopColorFor(u) || role?.color
@@ -785,6 +802,10 @@ const TEMPLATE = `
   function highlightFor(u) {
     if (!u || !u.equippedHighlight) return null;
     return SHOP_HIGHLIGHTS.find((x) => x.id === u.equippedHighlight) || null;
+  }
+  function titleFor(u) {
+    if (!u || !u.equippedTitle) return null;
+    return SHOP_TITLES.find((x) => x.id === u.equippedTitle) || null;
   }
   // Applies (or clears) a message row's cosmetic highlight - a no-op if the row is about to get
   // the (higher-priority) @mention treatment instead, which the caller clears this for.
@@ -1173,11 +1194,13 @@ const TEMPLATE = `
         ownedBanners: Array.isArray(data.ownedBanners) ? data.ownedBanners : [],
         ownedFrames: Array.isArray(data.ownedFrames) ? data.ownedFrames : [],
         ownedHighlights: Array.isArray(data.ownedHighlights) ? data.ownedHighlights : [],
+        ownedTitles: Array.isArray(data.ownedTitles) ? data.ownedTitles : [],
         equippedColor: data.equippedColor || null,
         equippedBadge: data.equippedBadge || null,
         equippedBanner: data.equippedBanner || null,
         equippedFrame: data.equippedFrame || null,
         equippedHighlight: data.equippedHighlight || null,
+        equippedTitle: data.equippedTitle || null,
       };
       // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
       // (Firestore orderBy silently skips docs missing the field entirely).
@@ -2689,6 +2712,7 @@ const TEMPLATE = `
           '<div class="shop-section"><h3>Profile banners</h3><div id="shop-banners" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Avatar frames</h3><div id="shop-frames" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Message highlights</h3><div id="shop-highlights" class="shop-grid"></div></div>' +
+          '<div class="shop-section"><h3>Profile titles</h3><div id="shop-titles" class="shop-grid"></div></div>' +
         "</div>" +
         '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
         '<div id="casino-msg" class="form-msg"></div>' +
@@ -2887,12 +2911,15 @@ const TEMPLATE = `
     } else if (kind === "frame") {
       el.className = "shop-frame-swatch" + (item.animated ? " avatar-frame-cosmic" : "");
       if (!item.animated) el.style.boxShadow = item.ring;
-    } else {
+    } else if (kind === "highlight") {
       el.className = "shop-highlight-swatch" + (item.animated ? " shop-highlight-animated" : "");
       if (!item.animated) {
         el.style.background = item.bg;
         el.style.boxShadow = "inset 3px 0 0 " + item.bar;
       }
+    } else {
+      el.className = "shop-badge-emoji" + (item.mythic ? " mythic-title" : "");
+      el.textContent = "\u{1F4DC}";
     }
     return el;
   }
@@ -2910,7 +2937,7 @@ const TEMPLATE = `
       card.appendChild(shopPreviewEl(kind, item));
       const nameEl = document.createElement("span");
       nameEl.className = "shop-item-name";
-      nameEl.textContent = item.name || item.label;
+      nameEl.textContent = item.name || item.label || item.text;
       card.appendChild(nameEl);
       const btn = document.createElement("button");
       btn.className = "btn btn-sm " + (owned ? "btn-secondary" : "btn-primary");
@@ -2928,6 +2955,7 @@ const TEMPLATE = `
     renderShopSection("banner", "#shop-banners");
     renderShopSection("frame", "#shop-frames");
     renderShopSection("highlight", "#shop-highlights");
+    renderShopSection("title", "#shop-titles");
   }
 
   function dmWelcomeBlock(name) {
@@ -4615,6 +4643,11 @@ const TEMPLATE = `
     }
     if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
     appendFlairBadge(name, u);
+    const titleEl = $("#profile-card-title");
+    const title = titleFor(u);
+    titleEl.hidden = !title;
+    titleEl.textContent = title ? title.text : "";
+    titleEl.classList.toggle("mythic-title", !!(title && title.mythic));
     $("#profile-card-status").textContent = u.status || (isOnline(u) ? "Online" : "Offline");
     $("#profile-card-bio").textContent = u.bio || "";
     $("#profile-card-bio-wrap").hidden = !u.bio;
