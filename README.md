@@ -134,11 +134,16 @@ name, and you get a `#general` text channel and a `voice` channel automatically.
   feature — it rides on the existing "you can always edit your own user doc" rule. The bet amount is
   always clamped to your real balance, no matter what gets typed into the box. **Site admins** can
   give (or take away) Volts from anyone in **Site Admin → All Users → ⚡ Volts**. A **🛍️ Shop** tab
-  spends Volts on cosmetics: 6 name colors (300⚡) and 6 flair badges (500–1500⚡), shown on your
-  display name everywhere it appears (chat, member lists, profile card, the leaderboard). A shop
-  color overrides a role color; owned items equip/unequip with a free click. Stored as
-  `ownedColors`/`ownedBadges`/`equippedColor`/`equippedBadge` on the user doc — again no rules
-  change needed, same self-update rule.
+  spends Volts on cosmetics, shown on your display name everywhere it appears (chat, member lists,
+  profile card, the leaderboard):
+  - **10 name colors** (300–450⚡) plus an animated **Rainbow** (5,000⚡) — overrides a role color.
+  - **12 flair badges** (500–5,000⚡) plus a glowing, color-cycling **Mythic** badge (25,000⚡) — a
+    small pill next to your name.
+  - **6 profile banners** (800–2,000⚡) — gradient backgrounds for your profile card.
+
+  Owned items equip/unequip with a free click; buying auto-equips. Stored as
+  `ownedColors`/`ownedBadges`/`ownedBanners`/`equippedColor`/`equippedBadge`/`equippedBanner` on
+  the user doc — again no rules change needed, same self-update rule.
 - **Voice/call presence**: Firestore has no server-side "someone disconnected" signal, so a closed
   tab, dead network, or crash used to leave a permanent "ghost" entry in a voice channel or call —
   showing someone as present who's long gone. Each client now touches its own participant doc every

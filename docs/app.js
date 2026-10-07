@@ -300,7 +300,7 @@ const TEMPLATE = `
 
   <div id="profile-card-modal" class="modal" hidden>
     <div class="modal-card profile-card">
-      <div class="profile-banner"></div>
+      <div class="profile-banner" id="profile-card-banner"></div>
       <button class="icon-btn corner-close" id="profile-card-close" title="Close">${ICONS.close}</button>
       <div class="profile-card-body">
         <div id="profile-card-avatar"></div>
@@ -652,6 +652,7 @@ const TEMPLATE = `
   };
 
   // ---- Volt Shop: cosmetics bought with Volts, stored on the user doc ----
+  // "rainbow" is special-cased (animated, not a flat color) - see applyNameStyle.
   const SHOP_COLORS = [
     { id: "crimson", color: "#ed4245", name: "Crimson", price: 300 },
     { id: "gold", color: "#faa61a", name: "Gold", price: 300 },
@@ -659,7 +660,13 @@ const TEMPLATE = `
     { id: "sky", color: "#00b0f4", name: "Sky", price: 300 },
     { id: "violet", color: "#9b59b6", name: "Violet", price: 300 },
     { id: "rose", color: "#f47fff", name: "Rose", price: 300 },
+    { id: "mint", color: "#1abc9c", name: "Mint", price: 450 },
+    { id: "coral", color: "#ff6b6b", name: "Coral", price: 450 },
+    { id: "amber", color: "#ffb703", name: "Amber", price: 450 },
+    { id: "indigo", color: "#6c5ce7", name: "Indigo", price: 450 },
+    { id: "rainbow", color: null, name: "Rainbow ✨", price: 5000, rainbow: true },
   ];
+  // "mythic" is special-cased (glowing pulse), see appendFlairBadge.
   const SHOP_BADGES = [
     { id: "vip", emoji: "⚡", label: "VIP", price: 500 },
     { id: "ghost", emoji: "\u{1F47B}", label: "Ghost", price: 500 },
@@ -667,13 +674,51 @@ const TEMPLATE = `
     { id: "villain", emoji: "\u{1F480}", label: "Villain", price: 750 },
     { id: "baller", emoji: "\u{1F4B0}", label: "Baller", price: 1000 },
     { id: "royalty", emoji: "\u{1F451}", label: "Royalty", price: 1500 },
+    { id: "goat", emoji: "\u{1F410}", label: "GOAT", price: 2000 },
+    { id: "rocket", emoji: "\u{1F680}", label: "Rocket", price: 2000 },
+    { id: "diamond", emoji: "\u{1F48E}", label: "Diamond", price: 3000 },
+    { id: "unicorn", emoji: "\u{1F984}", label: "Unicorn", price: 3000 },
+    { id: "icon", emoji: "\u{1F31F}", label: "Icon", price: 5000 },
+    { id: "alien", emoji: "\u{1F47D}", label: "Alien", price: 5000 },
+    { id: "mythic", emoji: "\u{1F409}", label: "Mythic", price: 25000, mythic: true },
   ];
+  const SHOP_BANNERS = [
+    { id: "sunset", gradient: "linear-gradient(135deg, #ff512f, #f09819)", name: "Sunset", price: 800 },
+    { id: "ocean", gradient: "linear-gradient(135deg, #2193b0, #6dd5ed)", name: "Ocean", price: 800 },
+    { id: "galaxy", gradient: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)", name: "Galaxy", price: 1200 },
+    { id: "toxic", gradient: "linear-gradient(135deg, #134e5e, #71b280)", name: "Toxic", price: 1200 },
+    { id: "inferno", gradient: "linear-gradient(135deg, #f12711, #f5af19)", name: "Inferno", price: 1500 },
+    { id: "void", gradient: "linear-gradient(135deg, #000000, #434343)", name: "Void", price: 2000 },
+  ];
+  const SHOP_CATALOG = { color: SHOP_COLORS, badge: SHOP_BADGES, banner: SHOP_BANNERS };
+  const SHOP_FIELDS = {
+    color: { owned: "ownedColors", equip: "equippedColor" },
+    badge: { owned: "ownedBadges", equip: "equippedBadge" },
+    banner: { owned: "ownedBanners", equip: "equippedBanner" },
+  };
   // A purchased name color wins over a role color (it's a direct personal purchase) - callers
   // combine this with whatever role color they already looked up: shopColorFor(u) || role?.color
   function shopColorFor(u) {
     if (!u || !u.equippedColor) return null;
     const c = SHOP_COLORS.find((x) => x.id === u.equippedColor);
-    return c ? c.color : null;
+    return c && !c.rainbow ? c.color : null;
+  }
+  function isRainbowEquipped(u) {
+    return !!(u && u.equippedColor === "rainbow");
+  }
+  // Applies the right name color (or the animated rainbow class) to a name element, given
+  // whatever role the caller already resolved for the fallback color.
+  function applyNameStyle(el, u, role) {
+    el.classList.remove("name-rainbow");
+    if (isRainbowEquipped(u)) {
+      el.classList.add("name-rainbow");
+      el.style.color = "";
+      return;
+    }
+    const shopColor = shopColorFor(u);
+    if (shopColor) el.style.color = shopColor;
+    else if (role && role.color) el.style.color = role.color;
+    else el.style.color = "";
   }
   function equippedBadgeInfo(u) {
     if (!u || !u.equippedBadge) return null;
@@ -683,9 +728,14 @@ const TEMPLATE = `
     const b = equippedBadgeInfo(u);
     if (!b) return;
     const el = document.createElement("span");
-    el.className = "role-badge flair-badge";
+    el.className = "role-badge flair-badge" + (b.mythic ? " mythic-badge" : "");
     el.textContent = b.emoji + " " + b.label;
     container.appendChild(el);
+  }
+  function bannerFor(u) {
+    if (!u || !u.equippedBanner) return null;
+    const b = SHOP_BANNERS.find((x) => x.id === u.equippedBanner);
+    return b ? b.gradient : null;
   }
   // Permissions are denormalised per member so Firestore rules can check them without loops.
   function computeMemberPerms(roles, memberRoles) {
@@ -1052,8 +1102,10 @@ const TEMPLATE = `
         lastClaimAt: data.lastClaimAt || null,
         ownedColors: Array.isArray(data.ownedColors) ? data.ownedColors : [],
         ownedBadges: Array.isArray(data.ownedBadges) ? data.ownedBadges : [],
+        ownedBanners: Array.isArray(data.ownedBanners) ? data.ownedBanners : [],
         equippedColor: data.equippedColor || null,
         equippedBadge: data.equippedBadge || null,
+        equippedBanner: data.equippedBanner || null,
       };
       // Backfill the volts field once so the leaderboard's orderBy("volts") picks everyone up
       // (Firestore orderBy silently skips docs missing the field entirely).
@@ -1173,8 +1225,7 @@ const TEMPLATE = `
         name.className = "member-name";
         name.textContent = u.displayName;
         const role = topRole(currentServer, u.uid);
-        const shopColor = shopColorFor(u);
-        if (shopColor || (role && role.color)) name.style.color = shopColor || role.color;
+        applyNameStyle(name, u, role);
         if (u.uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
         else if (u.role === "admin") name.appendChild(badgeIcon(ICONS.shield, "badge-admin", "Site admin"));
         appendFlairBadge(name, u);
@@ -1794,8 +1845,7 @@ const TEMPLATE = `
       const name = document.createElement("span");
       name.textContent = u.displayName;
       const top = topRole(currentServer, uid);
-      const shopColor = shopColorFor(u);
-      if (shopColor || (top && top.color)) name.style.color = shopColor || top.color;
+      applyNameStyle(name, u, top);
       nameWrap.appendChild(name);
       appendFlairBadge(nameWrap, u);
       if (uid === currentServer.ownerUid) nameWrap.appendChild(badgeIcon(ICONS.crown, "crown", "Owner"));
@@ -2564,6 +2614,7 @@ const TEMPLATE = `
         '<div id="ctab-shop" class="casino-tab" hidden>' +
           '<div class="shop-section"><h3 class="first">Name colours</h3><div id="shop-colors" class="shop-grid"></div></div>' +
           '<div class="shop-section"><h3>Badges</h3><div id="shop-badges" class="shop-grid"></div></div>' +
+          '<div class="shop-section"><h3>Profile banners</h3><div id="shop-banners" class="shop-grid"></div></div>' +
         "</div>" +
         '<div id="ctab-board" class="casino-tab" hidden><div id="casino-board-list"></div></div>' +
         '<div id="casino-msg" class="form-msg"></div>' +
@@ -2686,8 +2737,7 @@ const TEMPLATE = `
         const name = document.createElement("span");
         name.className = "board-name";
         name.textContent = u.displayName || "Unknown";
-        const shopColor = shopColorFor(u);
-        if (shopColor) name.style.color = shopColor;
+        applyNameStyle(name, u, null);
         if (rank === 1) name.appendChild(badgeIcon(ICONS.crown, "crown", "Volt Lord"));
         appendFlairBadge(name, u);
         row.appendChild(name);
@@ -2707,8 +2757,7 @@ const TEMPLATE = `
   // it and can actually afford it, then equips it as part of the same write.
   async function buyShopItem(kind, item) {
     if (!me) return;
-    const ownedField = kind === "color" ? "ownedColors" : "ownedBadges";
-    const equipField = kind === "color" ? "equippedColor" : "equippedBadge";
+    const { owned: ownedField, equip: equipField } = SHOP_FIELDS[kind];
     const uref = doc(db, "users", me.uid);
     try {
       await runTransaction(db, async (tx) => {
@@ -2737,7 +2786,7 @@ const TEMPLATE = `
 
   async function equipShopItem(kind, id) {
     if (!me) return;
-    const equipField = kind === "color" ? "equippedColor" : "equippedBadge";
+    const { equip: equipField } = SHOP_FIELDS[kind];
     const next = me[equipField] === id ? null : id; // click again to unequip
     try {
       await updateDoc(doc(db, "users", me.uid), { [equipField]: next });
@@ -2748,44 +2797,52 @@ const TEMPLATE = `
     }
   }
 
+  // Builds the preview swatch for one catalog entry: a flat color, the animated rainbow
+  // swatch, a badge emoji, or a banner gradient strip - whichever the item actually is.
+  function shopPreviewEl(kind, item) {
+    const el = document.createElement("span");
+    if (kind === "color") {
+      el.className = "shop-swatch" + (item.rainbow ? " shop-swatch-rainbow" : "");
+      if (!item.rainbow) el.style.background = item.color;
+    } else if (kind === "badge") {
+      el.className = "shop-badge-emoji";
+      el.textContent = item.emoji;
+    } else {
+      el.className = "shop-banner-swatch";
+      el.style.background = item.gradient;
+    }
+    return el;
+  }
+
+  function renderShopSection(kind, boxId) {
+    const box = $(boxId);
+    if (!box) return;
+    box.innerHTML = "";
+    const { owned: ownedField, equip: equipField } = SHOP_FIELDS[kind];
+    SHOP_CATALOG[kind].forEach((item) => {
+      const owned = (me[ownedField] || []).includes(item.id);
+      const equipped = me[equipField] === item.id;
+      const card = document.createElement("div");
+      card.className = "shop-item" + (equipped ? " equipped" : "") + (item.mythic ? " mythic" : "");
+      card.appendChild(shopPreviewEl(kind, item));
+      const nameEl = document.createElement("span");
+      nameEl.className = "shop-item-name";
+      nameEl.textContent = item.name || item.label;
+      card.appendChild(nameEl);
+      const btn = document.createElement("button");
+      btn.className = "btn btn-sm " + (owned ? "btn-secondary" : "btn-primary");
+      btn.textContent = equipped ? "Equipped" : owned ? "Equip" : "Buy for " + item.price.toLocaleString() + " ⚡";
+      btn.addEventListener("click", () => (owned ? equipShopItem(kind, item.id) : buyShopItem(kind, item)));
+      card.appendChild(btn);
+      box.appendChild(card);
+    });
+  }
+
   function renderShop() {
     if (!me) return;
-    const colorBox = $("#shop-colors");
-    const badgeBox = $("#shop-badges");
-    if (!colorBox || !badgeBox) return;
-    colorBox.innerHTML = "";
-    SHOP_COLORS.forEach((c) => {
-      const owned = (me.ownedColors || []).includes(c.id);
-      const equipped = me.equippedColor === c.id;
-      const card = document.createElement("div");
-      card.className = "shop-item" + (equipped ? " equipped" : "");
-      card.innerHTML =
-        '<span class="shop-swatch" style="background:' + c.color + '"></span>' +
-        "<span class=\"shop-item-name\"></span>" +
-        '<button class="btn btn-sm ' + (owned ? "btn-secondary" : "btn-primary") + '"></button>';
-      card.querySelector(".shop-item-name").textContent = c.name;
-      const btn = card.querySelector("button");
-      btn.textContent = equipped ? "Equipped" : owned ? "Equip" : "Buy for " + c.price + " ⚡";
-      btn.addEventListener("click", () => (owned ? equipShopItem("color", c.id) : buyShopItem("color", c)));
-      colorBox.appendChild(card);
-    });
-    badgeBox.innerHTML = "";
-    SHOP_BADGES.forEach((b) => {
-      const owned = (me.ownedBadges || []).includes(b.id);
-      const equipped = me.equippedBadge === b.id;
-      const card = document.createElement("div");
-      card.className = "shop-item" + (equipped ? " equipped" : "");
-      card.innerHTML =
-        '<span class="shop-badge-emoji"></span>' +
-        "<span class=\"shop-item-name\"></span>" +
-        '<button class="btn btn-sm ' + (owned ? "btn-secondary" : "btn-primary") + '"></button>';
-      card.querySelector(".shop-badge-emoji").textContent = b.emoji;
-      card.querySelector(".shop-item-name").textContent = b.label;
-      const btn = card.querySelector("button");
-      btn.textContent = equipped ? "Equipped" : owned ? "Equip" : "Buy for " + b.price + " ⚡";
-      btn.addEventListener("click", () => (owned ? equipShopItem("badge", b.id) : buyShopItem("badge", b)));
-      badgeBox.appendChild(card);
-    });
+    renderShopSection("color", "#shop-colors");
+    renderShopSection("badge", "#shop-badges");
+    renderShopSection("banner", "#shop-banners");
   }
 
   function dmWelcomeBlock(name) {
@@ -2848,13 +2905,7 @@ const TEMPLATE = `
         const author = document.createElement("span");
         author.className = "msg-author";
         author.textContent = prof.displayName || m.displayName || "Unknown";
-        const shopColor = shopColorFor(prof);
-        if (!inDm()) {
-          const role = topRole(currentServer, m.uid);
-          if (shopColor || (role && role.color)) author.style.color = shopColor || role.color;
-        } else if (shopColor) {
-          author.style.color = shopColor;
-        }
+        applyNameStyle(author, prof, !inDm() ? topRole(currentServer, m.uid) : null);
         if (me && m.uid !== me.uid) {
           author.classList.add("clickable");
           author.title = "Message " + (prof.displayName || "");
@@ -4446,19 +4497,18 @@ const TEMPLATE = `
     const u = usersCache.get(uid);
     if (!u) return;
     closeAllModals();
+    $("#profile-card-banner").style.background = bannerFor(u) || "";
     const av = $("#profile-card-avatar");
     av.innerHTML = "";
     av.appendChild(makeAvatar(u, uid, "avatar-80", true));
     const name = $("#profile-card-name");
     name.textContent = u.displayName || "Unknown";
     name.style.color = "";
-    const shopColor = shopColorFor(u);
-    if (shopColor) name.style.color = shopColor;
+    const top = !inDm() && currentServer ? topRole(currentServer, uid) : null;
+    applyNameStyle(name, u, top);
     const roleChips = $("#profile-card-roles");
     roleChips.innerHTML = "";
     if (!inDm() && currentServer) {
-      const top = topRole(currentServer, uid);
-      if (!shopColor && top && top.color) name.style.color = top.color;
       if (uid === currentServer.ownerUid) name.appendChild(badgeIcon(ICONS.crown, "crown", "Server owner"));
       const ids = memberRoleIds(currentServer, uid);
       serverRoles(currentServer)

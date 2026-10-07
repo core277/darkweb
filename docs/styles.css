@@ -683,9 +683,39 @@ svg { width: 20px; height: 20px; display: block; }
   background: var(--sidebar); border-radius: 10px; border: 2px solid transparent;
 }
 .shop-item.equipped { border-color: var(--blurple); }
+.shop-item.mythic { border-color: rgba(255, 180, 60, 0.4); box-shadow: 0 0 14px rgba(255, 150, 40, 0.25); }
+.shop-item.mythic.equipped { border-color: #ffb43c; }
 .shop-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); }
+.shop-swatch-rainbow {
+  background: linear-gradient(90deg, #ff0000, #ff9900, #33ff00, #00fff6, #0066ff, #cc00ff, #ff0000);
+  background-size: 400% 100%;
+  animation: dw-rainbow 3s linear infinite;
+}
+.shop-banner-swatch { width: 56px; height: 24px; border-radius: 6px; border: 2px solid rgba(255,255,255,0.15); }
 .shop-badge-emoji { font-size: 24px; line-height: 1; }
-.shop-item-name { font-size: 13px; font-weight: 600; color: var(--text-strong); }
+.shop-item-name { font-size: 13px; font-weight: 600; color: var(--text-strong); text-align: center; }
+
+/* Animated name color + glowing badge, purchasable in the shop. */
+.name-rainbow {
+  background: linear-gradient(90deg, #ff0000, #ff9900, #33ff00, #00fff6, #0066ff, #cc00ff, #ff0000);
+  background-size: 400% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  animation: dw-rainbow 3s linear infinite;
+}
+@keyframes dw-rainbow {
+  from { background-position: 0% 50%; }
+  to { background-position: 400% 50%; }
+}
+.role-badge.mythic-badge {
+  background: linear-gradient(90deg, #7a3cff, #ff3cac, #ffb43c, #7a3cff);
+  background-size: 300% 100%;
+  color: #fff;
+  animation: dw-rainbow 3.5s linear infinite, dw-mythic-pulse 1.8s ease-in-out infinite;
+}
+@keyframes dw-mythic-pulse {
+  0%, 100% { box-shadow: 0 0 2px rgba(255, 180, 60, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(255, 60, 172, 0.7); }
+}
 
 #composer { padding: 0 16px 24px; flex-shrink: 0; position: relative; }
 #mention-popup {
